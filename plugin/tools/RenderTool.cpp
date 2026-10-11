@@ -1,4 +1,6 @@
-// GlowRender in.wav out.wav [drive tone density mix outputDb] [blockSize]
+// GlowRender in.wav out.wav [name=value ...]
+//   names: drive even odd density hpf preHz preDb postHz postDb mix out block
+//   e.g.   GlowRender in.wav out.wav drive=60 even=80 hpf=120 postDb=-3
 // Runs the plugin's DSP offline, in host-sized blocks, and writes a 32-bit float WAV.
 // The output is latency-compensated so it lines up sample-for-sample with the input.
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -8,19 +10,33 @@ int main (int argc, char** argv)
 {
     if (argc < 3)
     {
-        std::printf ("usage: GlowRender in.wav out.wav [drive tone density mix outDb] [block]\n");
+        std::printf ("usage: GlowRender in.wav out.wav [drive= even= odd= density= hpf= preHz= preDb= postHz= postDb= mix= out= block=]\n");
         return 1;
     }
     juce::File in (juce::File::getCurrentWorkingDirectory().getChildFile (argv[1]));
     juce::File out (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
 
     GlowDSP::Params p;
-    if (argc > 3) p.drive = (float) std::atof (argv[3]);
-    if (argc > 4) p.tone = (float) std::atof (argv[4]);
-    if (argc > 5) p.density = (float) std::atof (argv[5]);
-    if (argc > 6) p.mix = (float) std::atof (argv[6]);
-    if (argc > 7) p.outputDb = (float) std::atof (argv[7]);
-    const int block = argc > 8 ? std::atoi (argv[8]) : 512;
+    int block = 512;
+    for (int a = 3; a < argc; ++a)
+    {
+        const juce::String arg (argv[a]);
+        const auto key = arg.upToFirstOccurrenceOf ("=", false, false);
+        const float v = arg.fromFirstOccurrenceOf ("=", false, false).getFloatValue();
+        if      (key == "drive")   p.drive = v;
+        else if (key == "even")    p.even = v;
+        else if (key == "odd")     p.odd = v;
+        else if (key == "density") p.density = v;
+        else if (key == "hpf")     p.hpfHz = v;
+        else if (key == "preHz")   p.preShelfHz = v;
+        else if (key == "preDb")   p.preShelfDb = v;
+        else if (key == "postHz")  p.postShelfHz = v;
+        else if (key == "postDb")  p.postShelfDb = v;
+        else if (key == "mix")     p.mix = v;
+        else if (key == "out")     p.outputDb = v;
+        else if (key == "block")   block = juce::jmax (1, (int) v);
+        else { std::printf ("unknown option %s\n", argv[a]); return 1; }
+    }
 
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();

@@ -8,8 +8,15 @@ GlowProcessor::GlowProcessor()
       apvts (*this, nullptr, "GLOW", createLayout())
 {
     pDrive = apvts.getRawParameterValue ("drive");
-    pTone = apvts.getRawParameterValue ("tone");
+    pEven = apvts.getRawParameterValue ("even");
+    pOdd = apvts.getRawParameterValue ("odd");
     pDensity = apvts.getRawParameterValue ("density");
+    pHpf = apvts.getRawParameterValue ("hpf");
+    pPreHz = apvts.getRawParameterValue ("preShelfFreq");
+    pPreDb = apvts.getRawParameterValue ("preShelfGain");
+    pPostHz = apvts.getRawParameterValue ("postShelfFreq");
+    pPostDb = apvts.getRawParameterValue ("postShelfGain");
+    pLink = apvts.getRawParameterValue ("shelfLink");
     pMix = apvts.getRawParameterValue ("mix");
     pOutput = apvts.getRawParameterValue ("output");
 }
@@ -18,25 +25,41 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
 {
     using namespace juce;
     auto pct = [] (float v, int) { return String (v, 0) + " %"; };
-    auto db = [] (float v, int) { return (v > 0 ? "+" : "") + String (v, 1) + " dB"; };
-    auto bip = [] (float v, int) { return std::abs (v) < 0.05f ? String ("0") : (v > 0 ? "+" : "") + String (v, 0); };
+    auto db = [] (float v, int) { return (v > 0.05f ? "+" : "") + String (v, 1) + " dB"; };
+    auto hz = [] (float v, int) { return v >= 1000.0f ? String (v / 1000.0f, 1) + " kHz" : String (v, 0) + " Hz"; };
+    auto hpfText = [hz] (float v, int len) { return v <= 10.5f ? String ("Off") : hz (v, len); };
+
+    auto freqRange = [] (float lo, float hi, float centre)
+    {
+        NormalisableRange<float> r (lo, hi, 0.1f);
+        r.setSkewForCentre (centre);
+        return r;
+    };
+
+    auto addFloat = [] (AudioProcessorValueTreeState::ParameterLayout& l, const char* id, const char* name,
+                        NormalisableRange<float> range, float def, std::function<String (float, int)> text)
+    {
+        l.add (std::make_unique<AudioParameterFloat> (ParameterID { id, 1 }, name, range, def,
+                   AudioParameterFloatAttributes().withStringFromValueFunction (std::move (text))));
+    };
 
     AudioProcessorValueTreeState::ParameterLayout l;
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "drive", 1 }, "Drive",
-              NormalisableRange<float> (0.0f, 100.0f, 0.01f), 25.0f,
-              AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int) { return String (v, 1); })));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "tone", 1 }, "Tone",
-              NormalisableRange<float> (-100.0f, 100.0f, 0.1f), 0.0f,
-              AudioParameterFloatAttributes().withStringFromValueFunction (bip)));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "density", 1 }, "Density",
-              NormalisableRange<float> (0.0f, 100.0f, 0.1f), 50.0f,
-              AudioParameterFloatAttributes().withStringFromValueFunction (pct)));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "mix", 1 }, "Mix",
-              NormalisableRange<float> (0.0f, 100.0f, 0.1f), 100.0f,
-              AudioParameterFloatAttributes().withStringFromValueFunction (pct)));
-    l.add (std::make_unique<AudioParameterFloat> (ParameterID { "output", 1 }, "Output",
-              NormalisableRange<float> (-24.0f, 12.0f, 0.01f), 0.0f,
-              AudioParameterFloatAttributes().withStringFromValueFunction (db)));
+    // Drive is the macro; Even/Odd trim each side of it (50 % = as measured on the reference)
+    addFloat (l, "drive", "Drive", { 0.0f, 100.0f, 0.01f }, 25.0f, [] (float v, int) { return String (v, 1); });
+    addFloat (l, "even", "Even", { 0.0f, 100.0f, 0.1f }, 50.0f, pct);
+    addFloat (l, "odd", "Odd", { 0.0f, 100.0f, 0.1f }, 50.0f, pct);
+    addFloat (l, "density", "Density", { 0.0f, 100.0f, 0.1f }, 50.0f, pct);
+    // pre-saturation EQ
+    addFloat (l, "hpf", "HPF", freqRange (10.0f, 1000.0f, 100.0f), 10.0f, hpfText);
+    addFloat (l, "preShelfFreq", "Pre Shelf Freq", freqRange (1000.0f, 16000.0f, 5000.0f), 5000.0f, hz);
+    addFloat (l, "preShelfGain", "Pre Shelf Gain", { -12.0f, 12.0f, 0.01f }, 0.0f, db);
+    // post-saturation EQ
+    addFloat (l, "postShelfFreq", "Post Shelf Freq", freqRange (1000.0f, 16000.0f, 5000.0f), 5000.0f, hz);
+    addFloat (l, "postShelfGain", "Post Shelf Gain", { -12.0f, 12.0f, 0.01f }, 0.0f, db);
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "shelfLink", 1 }, "Shelf Link", false));
+    // output
+    addFloat (l, "mix", "Mix", { 0.0f, 100.0f, 0.1f }, 100.0f, pct);
+    addFloat (l, "output", "Output", { -24.0f, 12.0f, 0.01f }, 0.0f, db);
     return l;
 }
 
@@ -63,8 +86,17 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
 
     GlowDSP::Params p;
     p.drive = pDrive->load();
-    p.tone = pTone->load();
+    p.even = pEven->load();
+    p.odd = pOdd->load();
     p.density = pDensity->load();
+    p.hpfHz = pHpf->load();
+    p.preShelfHz = pPreHz->load();
+    p.preShelfDb = pPreDb->load();
+    // Link: post shelf mirrors the pre shelf (same frequency, opposite gain), so the
+    // highs hit the tubes harder/softer but the overall tonal balance stays put
+    const bool link = pLink->load() > 0.5f;
+    p.postShelfHz = link ? p.preShelfHz : pPostHz->load();
+    p.postShelfDb = link ? -p.preShelfDb : pPostDb->load();
     p.mix = pMix->load();
     p.outputDb = pOutput->load();
     dsp.setParams (p);

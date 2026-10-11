@@ -39,8 +39,15 @@ private:
     GlowDSP dsp;
     int maxBlock = 512;
     std::atomic<float>* pDrive = nullptr;
-    std::atomic<float>* pTone = nullptr;
+    std::atomic<float>* pEven = nullptr;
+    std::atomic<float>* pOdd = nullptr;
     std::atomic<float>* pDensity = nullptr;
+    std::atomic<float>* pHpf = nullptr;
+    std::atomic<float>* pPreHz = nullptr;
+    std::atomic<float>* pPreDb = nullptr;
+    std::atomic<float>* pPostHz = nullptr;
+    std::atomic<float>* pPostDb = nullptr;
+    std::atomic<float>* pLink = nullptr;
     std::atomic<float>* pMix = nullptr;
     std::atomic<float>* pOutput = nullptr;
 

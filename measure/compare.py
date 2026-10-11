@@ -34,7 +34,7 @@ summary = {}
 fig, axes = plt.subplots(len(DRIVES), 3, figsize=(16, 3.2 * len(DRIVES)))
 for i, d in enumerate(DRIVES):
     out = f"renders/glow_testsignal_drive{d}.wav"
-    subprocess.run([RENDER, "measure/saturator_test_signal.wav", out, str(d), "0", "50", "100", "0"], check=True,
+    subprocess.run([RENDER, "measure/saturator_test_signal.wav", out, f"drive={d}"], check=True,
                    capture_output=True)
     g, _ = sf.read(out)
     b, _ = sf.read(f"prints/bbtubes_drive{d}.wav")
