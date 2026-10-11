@@ -1,0 +1,67 @@
+name: Build macOS (AU + VST3 + Standalone)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14   # Apple Silicon runner; the build itself is universal (arm64 + x86_64)
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (downloads JUCE 8.0.15)
+        working-directory: plugin
+        run: cmake -B build-mac -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        working-directory: plugin
+        run: cmake --build build-mac --config Release --target Glow_AU Glow_VST3 Glow_Standalone -j "$(sysctl -n hw.ncpu)"
+
+      - name: Check binaries are universal
+        working-directory: plugin/build-mac/Glow_artefacts/Release
+        run: |
+          lipo -info AU/Glow.component/Contents/MacOS/Glow
+          lipo -info VST3/Glow.vst3/Contents/MacOS/Glow
+
+      - name: Ad-hoc sign
+        working-directory: plugin/build-mac/Glow_artefacts/Release
+        run: |
+          codesign --force --deep --sign - AU/Glow.component
+          codesign --force --deep --sign - VST3/Glow.vst3
+          codesign --force --deep --sign - Standalone/Glow.app
+
+      - name: Validate AU with Apple auval
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          rm -rf ~/Library/Audio/Plug-Ins/Components/Glow.component
+          cp -R plugin/build-mac/Glow_artefacts/Release/AU/Glow.component ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          sleep 3
+          auval -v aufx Glw1 Hrna | tee auval.log
+          grep -q "AU VALIDATION SUCCEEDED" auval.log
+
+      - name: Validate VST3 + AU with pluginval
+        run: |
+          curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip
+          unzip -q pluginval.zip
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process \
+            plugin/build-mac/Glow_artefacts/Release/VST3/Glow.vst3
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process \
+            ~/Library/Audio/Plug-Ins/Components/Glow.component
+
+      - name: Package
+        run: |
+          mkdir -p out
+          R=plugin/build-mac/Glow_artefacts/Release
+          ditto -c -k --keepParent "$R/AU/Glow.component" out/Glow.component.zip
+          ditto -c -k --keepParent "$R/VST3/Glow.vst3" out/Glow.vst3.zip
+          ditto -c -k --keepParent "$R/Standalone/Glow.app" out/Glow.app.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Glow-macOS
+          path: out/*.zip
+          retention-days: 30

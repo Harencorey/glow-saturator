@@ -1,0 +1,219 @@
+{
+ "sr": 48000,
+ "segments": [
+  {
+   "name": "sync_start",
+   "start": 0.5,
+   "length": 0.05
+  },
+  {
+   "name": "sweep_-18",
+   "start": 1.05,
+   "length": 10.0,
+   "f1": 20.0,
+   "f2": 20000.0,
+   "level_db": -18
+  },
+  {
+   "name": "sine_100Hz_-36dB",
+   "start": 11.55,
+   "length": 0.5,
+   "freq": 100.0,
+   "level_db": -36
+  },
+  {
+   "name": "sine_100Hz_-33dB",
+   "start": 12.55,
+   "length": 0.5,
+   "freq": 100.0,
+   "level_db": -33
+  },
+  {
+   "name": "sine_100Hz_-30dB",
+   "start": 13.55,
+   "length": 0.5,
+   "freq": 100.0,
+   "level_db": -30
+  },
+  {
+   "name": "sine_100Hz_-27dB",
+   "start": 14.55,
+   "length": 0.5,
+   "freq": 100.0,
+   "level_db": -27
+  },
+  {
+   "name": "sine_100Hz_-24dB",
+   "start": 15.55,
+   "length": 0.5,
+   "freq": 100.0,
+   "level_db": -24
+  },
+  {
+   "name": "sine_100Hz_-21dB",
+   "start": 16.55,
+   "length": 0.5,
+   "freq": 100.0,
+   "level_db": -21
+  },
+  {
+   "name": "sine_100Hz_-18dB",
+   "start": 17.55,
+   "length": 0.5,
+   "freq": 100.0,
+   "level_db": -18
+  },
+  {
+   "name": "sine_100Hz_-15dB",
+   "start": 18.55,
+   "length": 0.5,
+   "freq": 100.0,
+   "level_db": -15
+  },
+  {
+   "name": "sine_100Hz_-12dB",
+   "start": 19.55,
+   "length": 0.5,
+   "freq": 100.0,
+   "level_db": -12
+  },
+  {
+   "name": "sine_100Hz_-9dB",
+   "start": 20.55,
+   "length": 0.5,
+   "freq": 100.0,
+   "level_db": -9
+  },
+  {
+   "name": "sine_100Hz_-6dB",
+   "start": 21.55,
+   "length": 0.5,
+   "freq": 100.0,
+   "level_db": -6
+  },
+  {
+   "name": "sine_100Hz_-3dB",
+   "start": 22.55,
+   "length": 0.5,
+   "freq": 100.0,
+   "level_db": -3
+  },
+  {
+   "name": "sine_100Hz_0dB",
+   "start": 23.55,
+   "length": 0.5,
+   "freq": 100.0,
+   "level_db": 0
+  },
+  {
+   "name": "sine_1000Hz_-36dB",
+   "start": 24.55,
+   "length": 0.5,
+   "freq": 1000.0,
+   "level_db": -36
+  },
+  {
+   "name": "sine_1000Hz_-33dB",
+   "start": 25.55,
+   "length": 0.5,
+   "freq": 1000.0,
+   "level_db": -33
+  },
+  {
+   "name": "sine_1000Hz_-30dB",
+   "start": 26.55,
+   "length": 0.5,
+   "freq": 1000.0,
+   "level_db": -30
+  },
+  {
+   "name": "sine_1000Hz_-27dB",
+   "start": 27.55,
+   "length": 0.5,
+   "freq": 1000.0,
+   "level_db": -27
+  },
+  {
+   "name": "sine_1000Hz_-24dB",
+   "start": 28.55,
+   "length": 0.5,
+   "freq": 1000.0,
+   "level_db": -24
+  },
+  {
+   "name": "sine_1000Hz_-21dB",
+   "start": 29.55,
+   "length": 0.5,
+   "freq": 1000.0,
+   "level_db": -21
+  },
+  {
+   "name": "sine_1000Hz_-18dB",
+   "start": 30.55,
+   "length": 0.5,
+   "freq": 1000.0,
+   "level_db": -18
+  },
+  {
+   "name": "sine_1000Hz_-15dB",
+   "start": 31.55,
+   "length": 0.5,
+   "freq": 1000.0,
+   "level_db": -15
+  },
+  {
+   "name": "sine_1000Hz_-12dB",
+   "start": 32.55,
+   "length": 0.5,
+   "freq": 1000.0,
+   "level_db": -12
+  },
+  {
+   "name": "sine_1000Hz_-9dB",
+   "start": 33.55,
+   "length": 0.5,
+   "freq": 1000.0,
+   "level_db": -9
+  },
+  {
+   "name": "sine_1000Hz_-6dB",
+   "start": 34.55,
+   "length": 0.5,
+   "freq": 1000.0,
+   "level_db": -6
+  },
+  {
+   "name": "sine_1000Hz_-3dB",
+   "start": 35.55,
+   "length": 0.5,
+   "freq": 1000.0,
+   "level_db": -3
+  },
+  {
+   "name": "sine_1000Hz_0dB",
+   "start": 36.55,
+   "length": 0.5,
+   "freq": 1000.0,
+   "level_db": 0
+  },
+  {
+   "name": "burst_1k_-30_-6_-30",
+   "start": 37.55,
+   "length": 3.0,
+   "step_times": [
+    1.0,
+    2.0
+   ]
+  },
+  {
+   "name": "imd_60_7k_-12",
+   "start": 41.05,
+   "length": 2.0
+  },
+  {
+   "name": "sync_end",
+   "start": 43.55,
+   "length": 0.05
+  }
+ ]
+}
