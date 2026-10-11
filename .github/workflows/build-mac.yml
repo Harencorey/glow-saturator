@@ -1,4 +1,4 @@
-name: Build macOS (AU + VST3 + Standalone)
+name: Build macOS installer (AU + VST3)
 
 on:
   push:
@@ -12,77 +12,83 @@ jobs:
   build:
     runs-on: macos-14   # Apple Silicon runner; the build itself is universal (arm64 + x86_64)
     timeout-minutes: 60
+    env:
+      VERSION: 0.1.${{ github.run_number }}
+      ART: plugin/build-mac/Glow_artefacts/Release
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure (downloads JUCE 8.0.15)
         working-directory: plugin
-        run: cmake -B build-mac -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build-mac -DCMAKE_BUILD_TYPE=Release -DGLOW_VERSION=${{ env.VERSION }}
 
       - name: Build
         working-directory: plugin
         run: cmake --build build-mac --config Release --target Glow_AU Glow_VST3 Glow_Standalone -j "$(sysctl -n hw.ncpu)"
 
       - name: Check binaries are universal
-        working-directory: plugin/build-mac/Glow_artefacts/Release
         run: |
-          lipo -info AU/Glow.component/Contents/MacOS/Glow
-          lipo -info VST3/Glow.vst3/Contents/MacOS/Glow
+          lipo -info "$ART/AU/Glow.component/Contents/MacOS/Glow"
+          lipo -info "$ART/VST3/Glow.vst3/Contents/MacOS/Glow"
 
       - name: Ad-hoc sign
-        working-directory: plugin/build-mac/Glow_artefacts/Release
         run: |
-          codesign --force --deep --sign - AU/Glow.component
-          codesign --force --deep --sign - VST3/Glow.vst3
-          codesign --force --deep --sign - Standalone/Glow.app
+          codesign --force --deep --sign - "$ART/AU/Glow.component"
+          codesign --force --deep --sign - "$ART/VST3/Glow.vst3"
+          codesign --force --deep --sign - "$ART/Standalone/Glow.app"
 
-      - name: Validate AU with Apple auval
+      - name: Build installer
+        run: bash packaging/make_pkg.sh "$ART" "$VERSION" out
+
+      - name: Test the installer (install exactly as a user would)
         run: |
-          mkdir -p ~/Library/Audio/Plug-Ins/Components
-          rm -rf ~/Library/Audio/Plug-Ins/Components/Glow.component
-          cp -R plugin/build-mac/Glow_artefacts/Release/AU/Glow.component ~/Library/Audio/Plug-Ins/Components/
+          # remove the copies the build step dropped in ~/Library so we only test what the .pkg installs
+          rm -rf ~/Library/Audio/Plug-Ins/Components/Glow.component ~/Library/Audio/Plug-Ins/VST3/Glow.vst3
+          sudo installer -pkg out/Glow-Installer.pkg -target /
+          ls -la /Library/Audio/Plug-Ins/Components/Glow.component /Library/Audio/Plug-Ins/VST3/Glow.vst3
+          pkgutil --pkgs | grep harenaudio
+
+      - name: Validate installed AU with Apple auval
+        run: |
           killall -9 AudioComponentRegistrar 2>/dev/null || true
           sleep 3
           auval -v aufx Glw1 Hrna | tee auval.log
           grep -q "AU VALIDATION SUCCEEDED" auval.log
 
-      - name: Validate VST3 + AU with pluginval
+      - name: Validate installed VST3 + AU with pluginval
         run: |
           curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip
           unzip -q pluginval.zip
-          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process \
-            plugin/build-mac/Glow_artefacts/Release/VST3/Glow.vst3
-          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process \
-            ~/Library/Audio/Plug-Ins/Components/Glow.component
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process /Library/Audio/Plug-Ins/VST3/Glow.vst3
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process /Library/Audio/Plug-Ins/Components/Glow.component
 
-      - name: Package
+      - name: Package extras
         run: |
-          mkdir -p out
-          R=plugin/build-mac/Glow_artefacts/Release
-          ditto -c -k --keepParent "$R/AU/Glow.component" out/Glow.component.zip
-          ditto -c -k --keepParent "$R/VST3/Glow.vst3" out/Glow.vst3.zip
-          ditto -c -k --keepParent "$R/Standalone/Glow.app" out/Glow.app.zip
+          ditto -c -k --keepParent "$ART/Standalone/Glow.app" out/Glow-Standalone.app.zip
+          ditto -c -k --keepParent "$ART/AU/Glow.component" out/Glow.component.zip
+          ditto -c -k --keepParent "$ART/VST3/Glow.vst3" out/Glow.vst3.zip
 
       - uses: actions/upload-artifact@v4
         with:
           name: Glow-macOS
-          path: out/*.zip
+          path: out/*
           retention-days: 30
 
       - name: Publish to the "latest" release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cat > notes.md <<'NOTES'
-          Built from ${{ github.sha }} on a macOS runner. Universal (Apple Silicon + Intel).
-          Passed Apple `auval` and pluginval (strictness 10) on AU and VST3.
+          cat > notes.md <<NOTES
+          **Glow ${VERSION}**, built from ${GITHUB_SHA::7}. Universal (Apple Silicon + Intel).
+          The installer was test-installed on a Mac and passed Apple auval and pluginval (strictness 10).
 
-          **Install**
-          1. Unzip `Glow.component.zip` into `~/Library/Audio/Plug-Ins/Components/`
-             and `Glow.vst3.zip` into `~/Library/Audio/Plug-Ins/VST3/`.
-          2. These builds aren't Apple-notarized, so clear the download quarantine once in Terminal:
-             `xattr -cr ~/Library/Audio/Plug-Ins/Components/Glow.component ~/Library/Audio/Plug-Ins/VST3/Glow.vst3`
-          3. Rescan plug-ins in your DAW and look for **Haren Audio > Glow**.
+          **Install:** download **Glow-Installer.pkg** and double-click it.
+          The first time, macOS will say it can't verify the developer (it isn't Apple-notarized yet).
+          Click **Done**, then go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to Glow-Installer.
+          (Or right-click the .pkg and choose **Open**.) It installs the AU + VST3 and replaces any older Glow.
+          Rescan plug-ins in your DAW and look for **Haren Audio > Glow**. The version is shown in the plug-in window.
+
+          The zips are only needed for manual installs.
           NOTES
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest out/*.zip --title "Glow (latest macOS build)" --notes-file notes.md --target ${{ github.sha }}
+          gh release create latest out/* --title "Glow ${VERSION} (latest macOS build)" --notes-file notes.md --target "$GITHUB_SHA"

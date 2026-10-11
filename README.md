@@ -63,12 +63,16 @@ Latency: 61 samples at 48 kHz (linear-phase oversampling, reported to the host).
 To rename it, change `PRODUCT_NAME`, `PLUGIN_CODE` and `BUNDLE_ID` in `CMakeLists.txt` and the title text in `PluginEditor.cpp`.
 Keep the 4-letter `PLUGIN_CODE` unique once you've used it in sessions.
 
-## Automated macOS builds
+## Automated macOS builds and installer
 
-Every push to `main` builds Glow on a GitHub macOS runner (`.github/workflows/build-mac.yml`).
-The run checks that the binaries are universal, ad-hoc signs them, and runs Apple `auval` plus
-pluginval at strictness 10 on the AU and VST3. It then publishes the AU, VST3 and Standalone zips to
-the **latest** release: https://github.com/Harencorey/glow-saturator/releases/tag/latest
+Every push to `main` builds Glow on a GitHub macOS runner (`.github/workflows/build-mac.yml`) as version `0.1.<build number>`.
+The run checks that the binaries are universal and builds **Glow-Installer.pkg** (`packaging/make_pkg.sh`).
+It then test-installs that .pkg on the runner and runs Apple `auval` plus pluginval at strictness 10 on the installed AU and VST3.
+Finally it publishes the installer to the **latest** release: https://github.com/Harencorey/glow-saturator/releases/tag/latest
 
-The builds aren't notarized, so after installing, clear the quarantine once:
-`xattr -cr ~/Library/Audio/Plug-Ins/Components/Glow.component ~/Library/Audio/Plug-Ins/VST3/Glow.vst3`
+**Installing:** double-click `Glow-Installer.pkg`. It isn't Apple-notarized yet, so the first time, macOS blocks it.
+Allow it with **System Settings > Privacy & Security > Open Anyway**, or right-click the .pkg and choose **Open**.
+It installs to `/Library/Audio/Plug-Ins/` and removes older per-user copies.
+The build number shows in the bottom-right of the plug-in window.
+
+The next step for a warning-free install is Developer ID signing plus notarization, which needs an Apple Developer account.

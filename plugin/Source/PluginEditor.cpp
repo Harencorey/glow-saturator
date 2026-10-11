@@ -106,6 +106,9 @@ void GlowEditor::paint (Graphics& g)
     g.setFont (FontOptions (12.0f));
     g.drawText ("TUBE SATURATOR  //  HAREN AUDIO", getLocalBounds().reduced (32, 0).removeFromTop (56),
                 Justification::centredRight);
+    g.setFont (FontOptions (10.0f));
+    g.drawText ("v" JucePlugin_VersionString, getLocalBounds().reduced (24, 16).removeFromBottom (14),
+                Justification::bottomRight);
 
     // "tube" glow: brightens with drive
     const float d = (float) drive.slider.getValue() / 100.0f;
