@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write   # lets the workflow publish the Releases page
+
 jobs:
   build:
     runs-on: macos-14   # Apple Silicon runner; the build itself is universal (arm64 + x86_64)
@@ -65,3 +68,21 @@ jobs:
           name: Glow-macOS
           path: out/*.zip
           retention-days: 30
+
+      - name: Publish to the "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'NOTES'
+          Built from ${{ github.sha }} on a macOS runner. Universal (Apple Silicon + Intel).
+          Passed Apple `auval` and pluginval (strictness 10) on AU and VST3.
+
+          **Install**
+          1. Unzip `Glow.component.zip` into `~/Library/Audio/Plug-Ins/Components/`
+             and `Glow.vst3.zip` into `~/Library/Audio/Plug-Ins/VST3/`.
+          2. These builds aren't Apple-notarized, so clear the download quarantine once in Terminal:
+             `xattr -cr ~/Library/Audio/Plug-Ins/Components/Glow.component ~/Library/Audio/Plug-Ins/VST3/Glow.vst3`
+          3. Rescan plug-ins in your DAW and look for **Haren Audio > Glow**.
+          NOTES
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest out/*.zip --title "Glow (latest macOS build)" --notes-file notes.md --target ${{ github.sha }}
