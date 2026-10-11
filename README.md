@@ -62,3 +62,13 @@ Latency: 61 samples at 48 kHz (linear-phase oversampling, reported to the host).
 
 To rename it, change `PRODUCT_NAME`, `PLUGIN_CODE` and `BUNDLE_ID` in `CMakeLists.txt` and the title text in `PluginEditor.cpp`.
 Keep the 4-letter `PLUGIN_CODE` unique once you've used it in sessions.
+
+## Automated macOS builds
+
+Every push to `main` builds Glow on a GitHub macOS runner (`.github/workflows/build-mac.yml`).
+The run checks that the binaries are universal, ad-hoc signs them, and runs Apple `auval` plus
+pluginval at strictness 10 on the AU and VST3. It then publishes the AU, VST3 and Standalone zips to
+the **latest** release: https://github.com/Harencorey/glow-saturator/releases/tag/latest
+
+The builds aren't notarized, so after installing, clear the quarantine once:
+`xattr -cr ~/Library/Audio/Plug-Ins/Components/Glow.component ~/Library/Audio/Plug-Ins/VST3/Glow.vst3`
