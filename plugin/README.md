@@ -128,6 +128,10 @@ Every push to `main` builds Glow on a GitHub macOS runner (`.github/workflows/bu
 The run checks that the binaries are universal and builds **Glow-Installer.pkg** (`packaging/make_pkg.sh`).
 It then test-installs that .pkg on the runner and runs Apple `auval` plus pluginval at strictness 10 on the installed AU and VST3.
 Finally it publishes the installer to the **latest** release: https://github.com/Harencorey/glow-saturator/releases/tag/latest
+It also publishes a permanent **v0.1.<build number>** release with the same files and that commit's change notes, so every past
+version stays downloadable from https://github.com/Harencorey/glow-saturator/releases (the "latest" one is replaced on each build).
+Versions 0.1.5–0.1.11 were added afterwards from the saved build files. 0.1.5–0.1.9 show up in DAWs as **Haren Audio > Glow**;
+0.1.10 onwards as **Norka DSP > Glow**. They install to the same place, so installing any version replaces the current one.
 
 **Installing:** double-click `Glow-Installer.pkg`. It isn't Apple-notarized yet, so the first time, macOS blocks it.
 Allow it with **System Settings > Privacy & Security > Open Anyway**, or right-click the .pkg and choose **Open**.

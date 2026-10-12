@@ -1,0 +1,52 @@
+# One-off: turns the installers saved by earlier builds (kept 30 days as Actions artifacts)
+# into permanent versioned releases. Runs on GitHub, where it can read the artifacts.
+name: Backfill version releases
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Publish v0.1.N releases from saved builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # run id : build number : label
+          while IFS=: read -r RUN N LABEL; do
+            [ -z "$RUN" ] && continue
+            TAG="v0.1.$N"
+            if gh release view "$TAG" >/dev/null 2>&1; then echo "$TAG exists, skipping"; continue; fi
+            SHA=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN" --jq .head_sha)
+            rm -rf dl && mkdir dl
+            gh run download "$RUN" -n Glow-macOS -D dl
+            ls -la dl
+            {
+              echo "**Glow 0.1.$N**, built from ${SHA::7}. ${LABEL}"
+              echo
+              echo "### What changed"
+              git log -1 --format=%B "$SHA" | grep -v -E '^(Co-Authored-By|Claude-Session):'
+              echo
+              echo "**Install:** download **Glow-Installer.pkg** and double-click it. Installing any version replaces whatever Glow you have."
+            } > notes.md
+            git tag -f "$TAG" "$SHA"
+            git push -f origin "refs/tags/$TAG"
+            gh release create "$TAG" dl/* --verify-tag --latest=false --title "Glow 0.1.$N" --notes-file notes.md
+            gh release edit "$TAG" --draft=false
+          done <<'LIST'
+          38158813436:5:The original version, voiced against BB Tubes. Shows up as Haren Audio > Glow.
+          38161341355:6:Shows up as Haren Audio > Glow.
+          38188542662:7:Shows up as Haren Audio > Glow.
+          38191932138:8:Shows up as Haren Audio > Glow.
+          38195487935:9:Shows up as Haren Audio > Glow.
+          38258727613:10:First Norka DSP build (Norka DSP > Glow).
+          38270907139:11:Norka DSP > Glow.
+          LIST
