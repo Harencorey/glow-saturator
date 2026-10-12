@@ -2,6 +2,7 @@
 #include "PluginProcessor.h"
 #include "UiCommon.h"
 #include "ModulePanels.h"
+#include "PresetBar.h"
 
 class GlowEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
@@ -47,6 +48,7 @@ private:
     float shownAuto = 1.0e9f;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> linkAttach;
     Strip dry, wet;
+    PresetBar presetBar;
 
     std::unique_ptr<ModulePanel> panel;           // the open EQ/COMP panel, if any
     juce::String panelPrefix;

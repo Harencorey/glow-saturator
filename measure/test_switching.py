@@ -17,7 +17,7 @@ SCEN = {
                                           "at=1.5", "wetEq=1", "wetG2=0", "at=2.0", "wetG2=-12", "at=2.5", "wetG2=0"]),
     "dry high shelf + bells on/off": (6000, ["dryF4=5000", "dryG4=-8", "dryG3=6", "dryF3=7000", "dryQ3=3", "at=0.5", "dryEq=1",
                                             "at=1.0", "dryEq=0", "at=1.5", "dryEq=1", "at=2.0", "dryG4=0", "at=2.5", "dryG3=0"]),
-    "HPF in/out + sweeps": (150, ["at=0.5", "hpf=11", "at=1.0", "hpf=200", "at=1.5", "hpf=10", "at=2.0", "hpf=400", "at=2.5", "hpf=10"]),
+    "HPF in/out + sweeps": (150, ["at=0.5", "hpf=20", "at=1.0", "hpf=200", "at=1.5", "hpf=19", "at=2.0", "hpf=400", "at=2.5", "hpf=19"]),
     "pre/post shelves": (5000, ["at=0.5", "preDb=8", "at=1.0", "postDb=-6", "at=1.5", "preDb=0", "at=2.0", "postDb=0", "preHz=2000", "at=2.5", "preDb=-12"]),
     "comps on/off, Mix moves": (1000, ["wetIn=18", "wetColour=1", "wetMix=50", "dryIn=12", "dryColour=2", "dryMix=30",
                                        "at=0.5", "wetComp=1", "at=1.0", "dryComp=1", "at=1.5", "wetMix=100", "dryMix=0",

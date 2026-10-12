@@ -17,12 +17,22 @@ It builds a universal (Apple Silicon + Intel) **AU, VST3 and Standalone** and in
 the plug-ins into `~/Library/Audio/Plug-Ins/`. Rescan in your DAW and look for **Norka DSP > Glow**.
 For Logic, you can validate the AU with `auval -v aufx Glw1 Nrka`.
 
+## Presets
+
+The bar at the top: click the name for the menu, use **<** / **>** to step through presets, and **SAVE** to store the current settings.
+A **\*** after the name means you've changed something since loading it.
+- **Factory presets** are starting points: Default, Subtle Warmth, Tube Bus Glue, Vocal Air & Grit, Bass Weight, Parallel Drum Smash, Lo-Fi Crush.
+- **Your presets** are plain files in `~/Library/Audio/Presets/Norka DSP/Glow/` (*.glowpreset), so you can back them up or copy them to another Mac.
+  The menu has Save As, Delete, and Show Presets Folder.
+- A preset stores every setting **except Mute and Solo**, so loading one never silences what you're listening to.
+- Loading goes through the host like a knob move (undoable and automatable). The session remembers which preset you were on.
+
 ## Controls
 
 **Pre** (before the tubes)
 | Control | What it does |
 |---|---|
-| **High-Pass** | 24 dB/oct (Linkwitz-Riley), 10 Hz–1 kHz, −3 dB at the knob frequency, with Off at the bottom. Keeps lows out of the saturation. |
+| **High-Pass** | 24 dB/oct (Linkwitz-Riley), 20 Hz–1 kHz, −3 dB at the knob frequency. The very bottom of the knob is Off; the first step up is 20 Hz. Keeps lows out of the saturation. |
 | **Shelf Freq / Gain** | High shelf, 1–16 kHz, ±12 dB. Boost it to make the top end hit the tubes harder. |
 
 **Tubes**

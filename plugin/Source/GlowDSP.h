@@ -59,13 +59,15 @@ private:
 class GlowDSP
 {
 public:
+    // HPF knob: the bottom of its travel is Off, then it starts at 20 Hz
+    static constexpr float kHpfOffHz = 19.0f, kHpfMinHz = 20.0f;
     struct Params
     {
         float drive = 25.0f;    // 0..100     macro: more of both even and odd
         float even = 50.0f;     // 0..100     50 = as measured, 0 = no even harmonics, 100 = 3x
         float odd = 50.0f;      // 0..100     50 = as measured, -/+12 dB of clipping depth at 0/100
         float density = 50.0f;  // 0..100     input-stage heat: 50 = measured, 0 = clean, 100 = +12 dB hotter
-        float hpfHz = 10.0f;    // 10..1000   pre-saturation high-pass, 10 = off
+        float hpfHz = kHpfOffHz; // Off, or 20..1000 Hz   pre-saturation high-pass
         float preShelfHz = 5000.0f, preShelfDb = 0.0f;    // pre-saturation high shelf
         float postShelfHz = 5000.0f, postShelfDb = 0.0f;  // post-saturation high shelf
         float outputDb = 0.0f;  // -24..+12 dB
@@ -190,7 +192,7 @@ public:
 
         // This block's filter plans. Both paths read the same plans, so every filter and its
         // all-pass twin move (and switch in/out) in lockstep.
-        hpfStage.plan (params.hpfHz > 10.5f, params.hpfHz, 0.0f, 0.70710678f, n);
+        hpfStage.plan (params.hpfHz >= kHpfMinHz - 0.5f, params.hpfHz, 0.0f, 0.70710678f, n);
         preStage.plan (true, params.preShelfHz, params.preShelfDb, 0.70710678f, n);
         postStage.plan (true, params.postShelfHz, params.postShelfDb, 0.70710678f, n);
         // mute/solo (like a console: any solo mutes the un-soloed path; mute always wins)

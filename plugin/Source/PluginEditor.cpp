@@ -9,6 +9,20 @@ GlowLookAndFeel::GlowLookAndFeel()
     setColour (Slider::textBoxOutlineColourId, Colours::transparentBlack);
     setColour (Slider::textBoxBackgroundColourId, Colours::transparentBlack);
     setColour (Label::textColourId, textDim);
+    // preset menu + save/delete dialogs in the plugin's colours
+    setColour (PopupMenu::backgroundColourId, section);
+    setColour (PopupMenu::textColourId, text);
+    setColour (PopupMenu::headerTextColourId, amber);
+    setColour (PopupMenu::highlightedBackgroundColourId, amber);
+    setColour (PopupMenu::highlightedTextColourId, bg);
+    setColour (AlertWindow::backgroundColourId, panel);
+    setColour (AlertWindow::textColourId, text);
+    setColour (AlertWindow::outlineColourId, amberDim);
+    setColour (TextEditor::backgroundColourId, Colours::black.withAlpha (0.35f));
+    setColour (TextEditor::textColourId, text);
+    setColour (TextEditor::outlineColourId, textDim.withAlpha (0.5f));
+    setColour (TextEditor::focusedOutlineColourId, amber);
+    setColour (CaretComponent::caretColourId, amber);
 }
 
 void GlowLookAndFeel::drawRotarySlider (Graphics& g, int x, int y, int w, int h, float pos,
@@ -110,15 +124,16 @@ void GlowLookAndFeel::drawButtonText (Graphics& g, TextButton& b, bool, bool)
 }
 
 //==============================================================================
-GlowEditor::GlowEditor (GlowProcessor& p) : AudioProcessorEditor (p), proc (p)
+GlowEditor::GlowEditor (GlowProcessor& p) : AudioProcessorEditor (p), proc (p), presetBar (p.presets)
 {
+    addAndMakeVisible (presetBar);
     setLookAndFeel (&lnf);
     auto& s = proc.apvts;
     drive.setup (*this, s, "drive", "DRIVE", 25.0);
     even.setup (*this, s, "even", "EVEN", 50.0);
     odd.setup (*this, s, "odd", "ODD", 50.0);
     density.setup (*this, s, "density", "DENSITY", 50.0);
-    hpf.setup (*this, s, "hpf", "HIGH-PASS", 10.0);
+    hpf.setup (*this, s, "hpf", "HIGH-PASS", GlowDSP::kHpfOffHz);
     preFreq.setup (*this, s, "preShelfFreq", "SHELF FREQ", 5000.0);
     preGain.setup (*this, s, "preShelfGain", "SHELF GAIN", 0.0);
     postFreq.setup (*this, s, "postShelfFreq", "SHELF FREQ", 5000.0);
@@ -241,6 +256,7 @@ void GlowEditor::timerCallback()
         st->compIcon.setState (st->compOn->load() > 0.5f, mine && panelKind == ModuleIcon::Kind::comp);
     }
     if (panel != nullptr) panel->refresh();
+    presetBar.refresh();
 
     // chain order (icons stack top = first) and mute/solo state (name dims when not heard)
     bool relayout = false;
@@ -344,6 +360,7 @@ void GlowEditor::layoutStrip (Strip& st, Rectangle<int> r)
 void GlowEditor::resized()
 {
     auto area = getLocalBounds().reduced (24);
+    presetBar.setBounds (Rectangle<int> (0, 22, 400, 26).withCentre ({ getWidth() / 2, 35 }));
     area.removeFromTop (40);
     area.removeFromBottom (10);
 

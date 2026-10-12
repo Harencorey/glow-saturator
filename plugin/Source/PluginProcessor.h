@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "GlowDSP.h"
+#include "PresetManager.h"
 
 class GlowProcessor : public juce::AudioProcessor
 {
@@ -37,6 +38,7 @@ public:
     void setStateInformation (const void*, int) override;
 
     juce::AudioProcessorValueTreeState apvts;
+    PresetManager presets { apvts };
 
     // meters (message thread)
     float takeDryPeak() { return dsp.takeDryPeak(); }

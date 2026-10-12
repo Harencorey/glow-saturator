@@ -55,6 +55,65 @@ int main()
         ok &= diff <= 0.0f;
         p.releaseResources();
     }
+    // ---- presets ----
+    {
+        auto check = [&ok] (bool c, const char* what) { std::printf ("  %-62s %s\n", what, c ? "OK" : "FAIL"); ok &= c; };
+        std::printf ("presets:\n");
+        GlowProcessor p;
+        auto& pm = p.presets;
+        auto val = [&p] (const char* id) { auto* rp = p.apvts.getParameter (id); return rp->convertFrom0to1 (rp->getValue()); };
+        auto set = [&p] (const char* id, float v) { auto* rp = p.apvts.getParameter (id); rp->setValueNotifyingHost (rp->convertTo0to1 (v)); };
+
+        // every factory preset only names real parameters, and loading applies its values
+        bool allIds = true, applied = true;
+        for (auto& f : PresetManager::factory())
+        {
+            for (auto& [id, v] : f.values)
+                if (p.apvts.getParameter (id) == nullptr) { std::printf ("    unknown id %s in %s\n", id, f.name); allIds = false; }
+            pm.load (f.name);
+            for (auto& [id, v] : f.values)
+                if (auto* rp = p.apvts.getParameter (id); rp != nullptr && std::abs (rp->convertFrom0to1 (rp->getValue()) - v) > 0.05f)
+                { std::printf ("    %s: %s = %.2f, want %.2f\n", f.name, id, rp->convertFrom0to1 (rp->getValue()), v); applied = false; }
+            if (pm.isModified()) applied = false;
+        }
+        check (allIds, "factory presets only use existing parameter IDs");
+        check (applied, "factory presets apply their values and read as unmodified");
+
+        pm.load ("Default");
+        check (! pm.isModified() && std::abs (val ("drive") - 25.0f) < 1e-3f, "Default = plugin defaults");
+
+        // user preset round trip
+        const juce::String name = "ProcTest Temp Preset";
+        set ("drive", 63.0f); set ("wetEqOn", 1.0f); set ("wetEqGain2", -7.5f); set ("hpf", 120.0f); set ("wetCompRatio", 5.0f);
+        check (pm.isModified(), "changing a knob marks the preset modified");
+        check (pm.save (name) && pm.isUser (name) && pm.getCurrentName() == name && ! pm.isModified(), "save writes a user preset and makes it current");
+        set ("wetMute", 1.0f);
+        pm.load ("Default");
+        check (val ("drive") < 25.01f && val ("wetEqGain2") > -0.01f, "loading Default resets everything");
+        check (val ("wetMute") > 0.5f, "Mute/Solo are left alone by presets");
+        pm.load (name);
+        check (std::abs (val ("drive") - 63.0f) < 0.02f && std::abs (val ("wetEqGain2") + 7.5f) < 0.02f
+               && std::abs (val ("hpf") - 120.0f) < 0.2f && std::abs (val ("wetCompRatio") - 5.0f) < 0.01f, "user preset loads back exactly");
+
+        // session save/restore keeps the preset name and its "unmodified" state
+        juce::MemoryBlock mb; p.getStateInformation (mb);
+        GlowProcessor q; q.setStateInformation (mb.getData(), (int) mb.getSize());
+        check (q.presets.getCurrentName() == name && ! q.presets.isModified(), "session recall keeps the preset name, unmodified");
+
+        check (pm.remove (name) && ! pm.isUser (name), "delete removes the user preset");
+
+        // HPF: Off at the bottom, then 20 Hz; an old session's 10 Hz (Off) stays Off
+        auto* h = p.apvts.getParameter ("hpf");
+        check (std::abs (h->convertFrom0to1 (0.0f) - GlowDSP::kHpfOffHz) < 1e-3f && h->getText (0.0f, 10) == "Off", "HPF bottom of the knob = Off");
+        check (std::abs (h->getNormalisableRange().snapToLegalValue (19.7f) - 20.0f) < 1e-3f
+               && std::abs (h->getNormalisableRange().snapToLegalValue (19.2f) - GlowDSP::kHpfOffHz) < 1e-3f, "HPF snaps to Off or 20 Hz, nothing in between");
+        check (h->getText (h->convertTo0to1 (20.0f), 10) == "20 Hz", "HPF first step reads 20 Hz");
+        auto xml = p.apvts.copyState().createXml();
+        for (auto* e : xml->getChildWithTagNameIterator ("PARAM")) if (e->getStringAttribute ("id") == "hpf") e->setAttribute ("value", 10.0);
+        GlowProcessor r; juce::MemoryBlock mb2; juce::AudioProcessor::copyXmlToBinary (*xml, mb2); r.setStateInformation (mb2.getData(), (int) mb2.getSize());
+        check (r.apvts.getParameter ("hpf")->getText (r.apvts.getParameter ("hpf")->getValue(), 10) == "Off", "old session with HPF at 10 Hz loads as Off");
+    }
+
     std::printf (ok ? "ALL OK\n" : "FAILURES\n");
     return ok ? 0 : 1;
 }

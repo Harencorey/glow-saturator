@@ -79,7 +79,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
     auto pct = [] (float v, int) { return String (v, 0) + " %"; };
     auto db = [] (float v, int) { return (v > 0.05f ? "+" : "") + String (v, 1) + " dB"; };
     auto hz = [] (float v, int) { return v >= 1000.0f ? String (v / 1000.0f, 1) + " kHz" : String (v, 0) + " Hz"; };
-    auto hpfText = [hz] (float v, int len) { return v <= 10.5f ? String ("Off") : hz (v, len); };
+    auto hpfText = [hz] (float v, int len) { return v < GlowDSP::kHpfMinHz - 0.5f ? String ("Off") : hz (v, len); };
 
     auto freqRange = [] (float lo, float hi, float centre)
     {
@@ -102,7 +102,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
     addFloat (l, "odd", "Odd", { 0.0f, 100.0f, 0.1f }, 50.0f, pct);
     addFloat (l, "density", "Density", { 0.0f, 100.0f, 0.1f }, 50.0f, pct);
     // pre-saturation EQ
-    addFloat (l, "hpf", "HPF", freqRange (10.0f, 1000.0f, 100.0f), 10.0f, hpfText);
+    // HPF: Off at the very bottom, then 20 Hz - 1 kHz (skewed so 100 Hz sits mid-travel).
+    // Nothing between Off and 20 Hz: values snap to one or the other.
+    {
+        constexpr float lo = GlowDSP::kHpfOffHz, hi = 1000.0f;
+        const float skew = std::log (0.5f) / std::log ((100.0f - lo) / (hi - lo));
+        NormalisableRange<float> r (lo, hi,
+            [skew] (float s, float e, float p) { return s + (e - s) * std::exp (std::log (juce::jmax (p, 1.0e-9f)) / skew); },
+            [skew] (float s, float e, float v) { return std::pow (juce::jlimit (0.0f, 1.0f, (v - s) / (e - s)), skew); },
+            [] (float s, float e, float v)
+            {
+                if (v < GlowDSP::kHpfMinHz - 0.5f) return s;   // Off
+                return juce::jlimit (GlowDSP::kHpfMinHz, e, std::round (v * 10.0f) / 10.0f);
+            });
+        addFloat (l, "hpf", "HPF", r, GlowDSP::kHpfOffHz, hpfText);
+    }
     addFloat (l, "preShelfFreq", "Pre Shelf Freq", freqRange (1000.0f, 16000.0f, 5000.0f), 5000.0f, hz);
     addFloat (l, "preShelfGain", "Pre Shelf Gain", { -12.0f, 12.0f, 0.01f }, 0.0f, db);
     // post-saturation EQ
@@ -257,7 +271,10 @@ void GlowProcessor::setStateInformation (const void* data, int size)
 {
     if (auto xml = getXmlFromBinary (data, size))
         if (xml->hasTagName (apvts.state.getType()))
+        {
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
+            presets.sessionRestored();
+        }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new GlowProcessor(); }
