@@ -42,6 +42,9 @@ private:
     Knob hpf, preFreq, preGain;
     Knob postFreq, postGain, output;
     juce::TextButton linkButton { "LINK" };
+    ToggleParam autoGain;            // master auto gain (+ readout of what it's applying)
+    juce::Label autoReadout;
+    float shownAuto = 1.0e9f;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> linkAttach;
     Strip dry, wet;
 

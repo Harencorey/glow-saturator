@@ -43,6 +43,7 @@ public:
     float takeWetPeak() { return dsp.takeWetPeak(); }
     float dryGainReductionDb() const { return dsp.dryGainReductionDb(); }
     float wetGainReductionDb() const { return dsp.wetGainReductionDb(); }
+    float autoGainDb() const { return dsp.getAutoGainDb(); }
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
 
 private:
@@ -60,7 +61,7 @@ private:
     std::atomic<float>* pPostHz = nullptr;
     std::atomic<float>* pPostDb = nullptr;
     std::atomic<float>* pLink = nullptr;
-    std::atomic<float>* pOutput = nullptr;
+    std::atomic<float>* pOutput = nullptr, * pAuto = nullptr;
 
     // raw parameter pointers for one channel strip ("dry" or "wet")
     struct StripParams
@@ -71,7 +72,7 @@ private:
         std::atomic<float>* lowShelf = nullptr, * highShelf = nullptr;
         std::atomic<float>* compOn = nullptr, * in = nullptr, * atk = nullptr, * rel = nullptr;
         std::atomic<float>* ratio = nullptr, * out = nullptr, * colour = nullptr, * hpf = nullptr, * mix = nullptr;
-        std::atomic<float>* mute = nullptr, * solo = nullptr, * compFirst = nullptr;
+        std::atomic<float>* mute = nullptr, * solo = nullptr, * compFirst = nullptr, * compAuto = nullptr;
         void bind (juce::AudioProcessorValueTreeState&, const juce::String& prefix);
         void read (ChannelStrip::Settings&) const;
     };

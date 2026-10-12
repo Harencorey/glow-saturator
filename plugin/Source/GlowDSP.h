@@ -69,6 +69,7 @@ public:
         float preShelfHz = 5000.0f, preShelfDb = 0.0f;    // pre-saturation high shelf
         float postShelfHz = 5000.0f, postShelfDb = 0.0f;  // post-saturation high shelf
         float outputDb = 0.0f;  // -24..+12 dB
+        bool autoGain = false;  // match output loudness to input (before the Output trim)
         ChannelStrip::Settings dry { ChannelStrip::kOffDb, {}, {} };   // dry path off by default
         ChannelStrip::Settings wet { 0.0f, {}, {} };                   // wet path at unity
     };
@@ -112,6 +113,12 @@ public:
             for (int k = 0; k < DryPhase::numSecondOrder; ++k)
                 c.dryPhase[(size_t) k].setAllPass (DryPhase::secondOrder[k].fc, DryPhase::secondOrder[k].q, sr);
         }
+        for (auto* k : { &kIn, &kOut })
+            for (auto& c : *k)
+            {
+                c[0].setHighShelf (1681.974, 3.99984, 0.7071752, sr);   // BS.1770 pre-filter
+                c[1].setHighPass (38.13547, 0.5003270, sr);             // BS.1770 RLB high-pass
+            }
         knee1.build (DriveMap::st1.sharp);
         knee2.build (DriveMap::at (params.drive).sharp);
 
@@ -143,6 +150,9 @@ public:
         for (auto* st : { &hpfStage, &preStage, &postStage }) st->snapNext();
         oddMakeup = 1.0f;
         oddPowAvg = refPowAvg = 0.0f;
+        for (auto* k : { &kIn, &kOut }) for (auto& c : *k) { c[0].reset(); c[1].reset(); }
+        inShort = outShort = inBlock = inLong = outLong = 0.0f;
+        autoGainDb = autoApplied = 0.0f;
     }
 
     // tube-stage oversampling + the channel strips' colour oversampling (same on both paths)
@@ -166,6 +176,7 @@ public:
         const int n = (int) block.getNumSamples();
         const int nch = juce::jmin ((int) block.getNumChannels(), channels);
         if (n == 0) return;
+        measureLoudness (block, nch, n, true);   // input loudness, before anything touches it
 
         if (firstBlock)
         {
@@ -344,14 +355,34 @@ public:
         if (testSolo == 2) wetBlock.copyFrom (dry);    // measurement hook (render tool only)
         else if (testSolo != 1) wetBlock.add (dry);
 
+        // auto gain: always measured (so switching it on lands on the right level at once),
+        // applied only when enabled. Then the Output trim on top.
+        measureLoudness (block, nch, n, false);
+        const float autoTarget = params.autoGain ? autoGainDb : 0.0f;
+        const float a0 = autoApplied;
+        autoApplied = autoTarget + (autoApplied - autoTarget) * std::exp (-(float) n / (0.05f * (float) sr));   // ~50 ms
+        if (std::abs (autoApplied - autoTarget) < 1.0e-3f) autoApplied = autoTarget;
+        const bool autoMoving = std::abs (a0) > 0.0f || std::abs (autoApplied) > 0.0f;
+        const float ga0 = juce::Decibels::decibelsToGain (a0), ga1 = juce::Decibels::decibelsToGain (autoApplied);
+        const float gaStep = (ga1 - ga0) / (float) n;
         for (int c = 0; c < nch; ++c)
         {
             auto* y = block.getChannelPointer ((size_t) c);
             auto g = smOut;
-            for (int i = 0; i < n; ++i) y[i] *= g.getNextValue();
+            if (autoMoving)
+            {
+                float ga = ga0;
+                for (int i = 0; i < n; ++i) { ga += gaStep; y[i] *= g.getNextValue() * ga; }
+            }
+            else
+                for (int i = 0; i < n; ++i) y[i] *= g.getNextValue();
         }
         smOut.skip (n);
+        autoMeter.store (params.autoGain ? autoApplied : 0.0f);
     }
+
+    // UI: the auto gain currently applied, in dB (0 when off)
+    float getAutoGainDb() const { return autoMeter.load(); }
 
     // A tube stage with its even-harmonic content scaled by evenGain.
     // evenGain == 1 is the plain stage (one evaluation); otherwise the curve is split into
@@ -404,6 +435,40 @@ public:
 private:
     size_t osStages = 3;   // set in prepare() from the sample rate
 
+    // Loudness for auto gain: K-weighted (ITU BS.1770 curve: ~+4 dB above 1.5 kHz, rolled off
+    // below ~40 Hz), mean square over ~3 s. Only updated while both input and output are
+    // actually playing, so silence, fades and muting both paths never drag the gain around.
+    void measureLoudness (const juce::dsp::AudioBlock<float>& block, int nch, int n, bool isInput)
+    {
+        double sum = 0.0;
+        nch = juce::jmin (nch, 2);
+        for (int c = 0; c < nch; ++c)
+        {
+            auto& k = isInput ? kIn[(size_t) c] : kOut[(size_t) c];
+            const auto* x = block.getChannelPointer ((size_t) c);
+            for (int i = 0; i < n; ++i)
+            {
+                const double v = k[1].process (k[0].process ((double) x[i]));
+                sum += v * v;
+            }
+        }
+        const float ms = (float) (sum / (double) (n * juce::jmax (1, nch)));
+        const float aShort = std::exp (-(float) n / (0.4f * (float) sr));
+        float& st = isInput ? inShort : outShort;
+        st = aShort * st + (1.0f - aShort) * ms;
+        if (isInput) { inBlock = ms; return; }
+
+        constexpr float kGate = 1.0e-7f;   // -70 dB: below this, hold
+        if (inShort > kGate && outShort > kGate)
+        {
+            const float aLong = std::exp (-(float) n / (3.0f * (float) sr));
+            if (inLong <= 0.0f || outLong <= 0.0f) { inLong = inShort; outLong = outShort; }   // first sound: start there
+            inLong = aLong * inLong + (1.0f - aLong) * inBlock;
+            outLong = aLong * outLong + (1.0f - aLong) * ms;
+            autoGainDb = juce::jlimit (-18.0f, 18.0f, 10.0f * std::log10 (inLong / outLong));
+        }
+    }
+
     struct Channel
     {
         Biquad hp1, hp2, bump, dip, dc;    // fixed (measured) EQ
@@ -437,6 +502,10 @@ private:
     Params params;
     KneeTable knee1, knee2;   // input stage (fixed), output stage (follows Drive)
     bool dryStale = true;     // dry filters skipped while the Dry fader is off
+    std::array<std::array<Biquad, 2>, 2> kIn, kOut;   // K-weighting for auto gain (in / out, per channel)
+    float inShort = 0.0f, outShort = 0.0f, inBlock = 0.0f, inLong = 0.0f, outLong = 0.0f;
+    float autoGainDb = 0.0f, autoApplied = 0.0f;
+    std::atomic<float> autoMeter { 0.0f };
 public:
     int testSolo = 0;         // offline measurement only: 1 = output wet path only, 2 = dry only
 };

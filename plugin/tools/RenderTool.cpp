@@ -67,11 +67,13 @@ int main (int argc, char** argv)
             else if (k == "Hpf")    st.comp.detectorHpf = v > 0.5f;
             else if (k == "Mix")    st.comp.mix = v;
             else if (k == "Mute")   st.mute = v > 0.5f;
+            else if (k == "Auto")   st.comp.autoMakeup = v > 0.5f;
             else if (k == "Solo")   st.solo = v > 0.5f;
             else if (k == "Order")  st.compFirst = v > 0.5f;   // 1 = Comp -> EQ
             else return false;
         }
         else if (key == "out")     p.outputDb = v;
+        else if (key == "auto")    p.autoGain = v > 0.5f;
         else if (key == "block")   block = juce::jmax (1, (int) v);
         else if (key == "solo")    solo = (int) v;   // 1 = wet path only, 2 = dry path only (both still run)
         else return false;

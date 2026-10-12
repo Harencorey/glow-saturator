@@ -111,6 +111,7 @@ struct CompSettings
     int colour = 0;           // 0 clean, 1 Dist 2 (2nd harmonic), 2 Dist 3 (3rd harmonic)
     bool detectorHpf = false; // 100 Hz high-pass on the detector only
     float mix = 100.0f;       // 0..100 %: parallel blend of the uncompressed signal
+    bool autoMakeup = false;  // automatic makeup gain from Input + Ratio (Output trims on top)
 };
 
 class Compressor
@@ -165,14 +166,14 @@ public:
             // switching on: clean detector, gains straight to their settings, Mix fades in
             active = true;
             smIn.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (s.inputDb));
-            smOut.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (s.outputDb));
+            smOut.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputGainDb (s)));
             reset();
         }
 
         const int n = (int) block.getNumSamples();
         const int ch = juce::jmin ((int) block.getNumChannels(), nch);
         smIn.setTargetValue (juce::Decibels::decibelsToGain (s.inputDb));
-        smOut.setTargetValue (juce::Decibels::decibelsToGain (s.outputDb));
+        smOut.setTargetValue (juce::Decibels::decibelsToGain (outputGainDb (s)));
 
         const int r = juce::jlimit (0, kNumRatios - 1, s.ratio);
         const float ratio = kRatio[r];
@@ -203,15 +204,7 @@ public:
             // signal's envelope rather than every individual waveform peak
             env = det > env ? det : env * aEnv;
 
-            // static curve (soft knee), in dB
-            const float xDb = juce::Decibels::gainToDecibels (env, -120.0f);
-            const float over = xDb - kThresholdDb;
-            float target = 0.0f;   // gain change in dB (<= 0)
-            if (slope > 0.0f)
-            {
-                if (2.0f * over > knee)                         target = -slope * over;
-                else if (knee > 0.0f && 2.0f * over > -knee)    target = -slope * (over + 0.5f * knee) * (over + 0.5f * knee) / (2.0f * knee);
-            }
+            const float target = staticCurve (juce::Decibels::gainToDecibels (env, -120.0f), slope, knee);
 
             // attack when more reduction is needed, release when less
             grDb = target < grDb ? aAtk * grDb + (1.0f - aAtk) * target
@@ -257,7 +250,35 @@ public:
 
     float getGainReductionDb() const { return meterGr.load(); }
 
+    // Auto makeup: undoes the Input gain and the gain reduction the static curve gives at a
+    // reference detector level (kRefPeakDb). Measured: a track peaking around -12 dBFS stays
+    // within ~1 dB at any Input/Ratio. Quieter tracks come up louder as Input rises.
+    // Static (worked out from the settings, not the signal), so it can't pump or breathe.
+    static float makeupDb (float inputDb, int ratioIndex)
+    {
+        const int r = juce::jlimit (0, kNumRatios - 1, ratioIndex);
+        const float slope = 1.0f - 1.0f / kRatio[r];
+        return -inputDb - staticCurve (kRefPeakDb + inputDb, slope, kKnee[r]);
+    }
+
 private:
+    static constexpr float kRefPeakDb = -21.0f;   // detector level it's calibrated at (~a track peaking near -12 dBFS)
+
+    static float outputGainDb (const CompSettings& s)
+    {
+        return s.outputDb + (s.autoMakeup ? makeupDb (s.inputDb, s.ratio) : 0.0f);
+    }
+
+    // static curve (soft knee): gain change in dB (<= 0) for a detector level in dB
+    static float staticCurve (float xDb, float slope, float knee)
+    {
+        const float over = xDb - kThresholdDb;
+        if (slope <= 0.0f) return 0.0f;
+        if (2.0f * over > knee) return -slope * over;
+        if (knee > 0.0f && 2.0f * over > -knee) return -slope * (over + 0.5f * knee) * (over + 0.5f * knee) / (2.0f * knee);
+        return 0.0f;
+    }
+
     static constexpr int kMaxCh = 2;
     static constexpr float kThresholdDb = -18.0f;    // fixed: Input sets how hard you hit it
     static constexpr float kRatio[kNumRatios] { 1.0f, 2.0f, 3.0f, 4.0f, 6.0f, 10.0f, 20.0f, 1000.0f };

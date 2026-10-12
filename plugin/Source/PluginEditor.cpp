@@ -128,6 +128,13 @@ GlowEditor::GlowEditor (GlowProcessor& p) : AudioProcessorEditor (p), proc (p)
     linkButton.setClickingTogglesState (true);
     linkButton.setTooltip ("Post shelf mirrors the pre shelf: highs hit the tubes harder or softer, overall balance stays put");
     addAndMakeVisible (linkButton);
+    autoGain.setup (*this, s, "autoGain", "AUTO");
+    autoGain.button.setTooltip ("Auto gain: keeps the output as loud as the input (slow, ~3 s), so Drive/EQ/comp moves "
+                                "don't fool your ears. Output trims on top.");
+    autoReadout.setJustificationType (Justification::centred);
+    autoReadout.setFont (FontOptions (10.5f));
+    autoReadout.setColour (Label::textColourId, GlowLookAndFeel::textDim);
+    addAndMakeVisible (autoReadout);
     linkAttach = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment> (s, "shelfLink", linkButton);
 
     setupStrip (dry, "dry", "DRY");
@@ -211,6 +218,16 @@ void GlowEditor::closePanel()
 
 void GlowEditor::timerCallback()
 {
+    {   // master auto gain readout
+        const float a = proc.autoGainDb();
+        const bool on = autoGain.button.getToggleState();
+        const float shown = on ? std::round (a * 10.0f) / 10.0f : 1.0e8f;
+        if (std::abs (shown - shownAuto) > 0.01f)
+        {
+            shownAuto = shown;
+            autoReadout.setText (on ? (a > 0.05f ? "+" : "") + String (a, 1) + " dB" : String(), dontSendNotification);
+        }
+    }
     const bool link = linkButton.getToggleState();
     postFreq.slider.setEnabled (! link);
     postGain.slider.setEnabled (! link);
@@ -351,6 +368,9 @@ void GlowEditor::resized()
         postFreq.place (top.removeFromLeft (top.getWidth() / 2));
         postGain.place (top);
         output.place (r.withSizeKeepingCentre (100, r.getHeight()));
+        // AUTO gain switch on the OUTPUT label's row (like LINK), what it's applying underneath
+        autoGain.button.setBounds (postArea.getRight() - 58, r.getY(), 48, 16);
+        autoReadout.setBounds (postArea.getRight() - 64, r.getY() + 18, 60, 14);
     }
     {   // TUBES: Drive big, Even / Density / Odd underneath
         auto r = tubeArea;

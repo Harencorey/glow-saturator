@@ -18,6 +18,7 @@ GlowProcessor::GlowProcessor()
     pPostDb = apvts.getRawParameterValue ("postShelfGain");
     pLink = apvts.getRawParameterValue ("shelfLink");
     pOutput = apvts.getRawParameterValue ("output");
+    pAuto = apvts.getRawParameterValue ("autoGain");
     dryParams.bind (apvts, "dry");
     wetParams.bind (apvts, "wet");
 }
@@ -44,6 +45,7 @@ void GlowProcessor::StripParams::bind (juce::AudioProcessorValueTreeState& s, co
     colour = get ("CompColour");
     hpf = get ("CompHpf");
     mix = get ("CompMix");
+    compAuto = get ("CompAuto");
     mute = get ("Mute");
     solo = get ("Solo");
     compFirst = get ("CompFirst");
@@ -65,6 +67,7 @@ void GlowProcessor::StripParams::read (ChannelStrip::Settings& st) const
     st.comp.colour = (int) std::lround (colour->load());
     st.comp.detectorHpf = hpf->load() > 0.5f;
     st.comp.mix = mix->load();
+    st.comp.autoMakeup = compAuto->load() > 0.5f;
     st.mute = mute->load() > 0.5f;
     st.solo = solo->load() > 0.5f;
     st.compFirst = compFirst->load() > 0.5f;
@@ -108,6 +111,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "shelfLink", 1 }, "Shelf Link", false));
     // output
     addFloat (l, "output", "Output", { -24.0f, 12.0f, 0.01f }, 0.0f, db);
+    // keeps the output as loud as the input (slow, K-weighted), so moves don't fool your ears
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "autoGain", 1 }, "Auto Gain", false));
 
     // Dry and Wet channel strips: fader, 4-band EQ, compressor
     auto levelText = [db] (float v, int len) { return v <= ChannelStrip::kOffDb + 0.05f ? String ("Off") : db (v, len); };
@@ -155,6 +160,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "Solo", 1 }, P + "Solo", false));
         // signal order inside the path: EQ -> Comp (default) or Comp -> EQ
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompFirst", 1 }, P + "Comp Before EQ", false));
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompAuto", 1 }, P + "Comp Auto Makeup", false));
         addFloat (l, id ("CompMix").c_str(), (P + "Comp Mix").toRawUTF8(), { 0.0f, 100.0f, 0.1f }, 100.0f, pct);
     }
     return l;
@@ -226,6 +232,7 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     p.postShelfHz = link ? p.preShelfHz : pPostHz->load();
     p.postShelfDb = link ? -p.preShelfDb : pPostDb->load();
     p.outputDb = pOutput->load();
+    p.autoGain = pAuto->load() > 0.5f;
     dryParams.read (p.dry);
     wetParams.read (p.wet);
     dsp.setParams (p);

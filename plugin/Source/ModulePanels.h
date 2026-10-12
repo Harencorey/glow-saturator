@@ -438,6 +438,8 @@ public:
         addAndMakeVisible (ratio);
         addAndMakeVisible (colour);
         hpf.setup (*this, s, prefix + "CompHpf", "DETECTOR HPF");
+        autoMakeup.setup (*this, s, prefix + "CompAuto", "AUTO MAKEUP");
+        autoMakeup.button.setTooltip ("Automatic makeup gain from Input + Ratio: push Input for more compression without the level jumping. Output trims on top.");
         for (auto* l : { &ratioLabel, &colourLabel })
         {
             l->setFont (juce::FontOptions (11.0f, juce::Font::bold));
@@ -474,13 +476,16 @@ protected:
         colourLabel.setBounds (r.removeFromTop (16));
         colour.setBounds (r.removeFromTop (32));
         r.removeFromTop (10);
-        hpf.button.setBounds (r.removeFromTop (28).removeFromLeft (140));
+        auto row = r.removeFromTop (28);
+        hpf.button.setBounds (row.removeFromLeft (140));
+        row.removeFromLeft (8);
+        autoMakeup.button.setBounds (row.removeFromLeft (140));
     }
 
 private:
     Knob input, attack, release, output, mix;
     ChoiceButtons ratio, colour;
-    ToggleParam hpf;
+    ToggleParam hpf, autoMakeup;
     juce::Label ratioLabel, colourLabel;
     GrMeter gr;
     std::function<float()> getGr;
