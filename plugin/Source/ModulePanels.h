@@ -440,6 +440,13 @@ public:
         hpf.setup (*this, s, prefix + "CompHpf", "DETECTOR HPF");
         autoMakeup.setup (*this, s, prefix + "CompAuto", "AUTO MAKEUP");
         autoMakeup.button.setTooltip ("Automatic makeup gain from Input + Ratio: push Input for more compression without the level jumping. Output trims on top.");
+        makeupReadout.setJustificationType (juce::Justification::centred);
+        makeupReadout.setFont (juce::FontOptions (10.5f));
+        makeupReadout.setColour (juce::Label::textColourId, GlowLookAndFeel::textDim);
+        addAndMakeVisible (makeupReadout);
+        pAuto = s.getRawParameterValue (prefix + "CompAuto");
+        pInput = s.getRawParameterValue (prefix + "CompInput");
+        pRatio = s.getRawParameterValue (prefix + "CompRatio");
         for (auto* l : { &ratioLabel, &colourLabel })
         {
             l->setFont (juce::FontOptions (11.0f, juce::Font::bold));
@@ -451,7 +458,18 @@ public:
         addAndMakeVisible (gr);
     }
 
-    void refresh() override { gr.set (getGr ? getGr() : 0.0f); }
+    void refresh() override
+    {
+        gr.set (getGr ? getGr() : 0.0f);
+        // the makeup AUTO MAKEUP is applying (it's set by Input + Ratio, so this is exact)
+        juce::String t;
+        if (pAuto->load() > 0.5f)
+        {
+            const float m = Compressor::makeupDb (pInput->load(), (int) std::lround (pRatio->load()));
+            t = "makeup " + juce::String (m > 0.05f ? "+" : "") + juce::String (std::abs (m) < 0.05f ? 0.0f : m, 1) + " dB";
+        }
+        if (t != makeupReadout.getText()) makeupReadout.setText (t, juce::dontSendNotification);
+    }
 
 protected:
     void layoutContent (juce::Rectangle<int> r) override
@@ -480,12 +498,15 @@ protected:
         hpf.button.setBounds (row.removeFromLeft (140));
         row.removeFromLeft (8);
         autoMakeup.button.setBounds (row.removeFromLeft (140));
+        makeupReadout.setBounds (autoMakeup.button.getBounds().translated (0, 30).withHeight (16));
     }
 
 private:
     Knob input, attack, release, output, mix;
     ChoiceButtons ratio, colour;
     ToggleParam hpf, autoMakeup;
+    juce::Label makeupReadout;
+    std::atomic<float>* pAuto = nullptr, * pInput = nullptr, * pRatio = nullptr;
     juce::Label ratioLabel, colourLabel;
     GrMeter gr;
     std::function<float()> getGr;
