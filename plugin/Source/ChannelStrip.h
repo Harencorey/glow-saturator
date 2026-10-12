@@ -298,9 +298,12 @@ class ChannelStrip
 public:
     struct Settings
     {
-        float levelDb = 0.0f;   // fader; at or below kOffDb the path is muted
+        float levelDb = 0.0f;   // fader; at or below kOffDb the path is switched off
         EqSettings eq;
         CompSettings comp;
+        bool mute = false, solo = false;
+        bool compFirst = false; // order: false = EQ -> Comp, true = Comp -> EQ
+        bool audible = true;    // mute/solo resolved across both paths (set by GlowDSP)
     };
     static constexpr float kOffDb = -60.0f;
 
@@ -315,6 +318,9 @@ public:
         eq.prepare (sampleRate, maxBlock);
         comp.prepare (sampleRate, numChannels, (int) os->getOversamplingFactor(), maxBlock);
         smLevel.reset (sampleRate, 0.05);
+        smAudible.reset (sampleRate, 0.01);   // mute/solo: 10 ms, click-free
+        swapStep = (float) (1.0 / (0.015 * sampleRate));   // order switch: 15 ms down, 15 ms up
+        swapGain = 1.0f;
         first = true;
         stale = true;
     }
@@ -346,25 +352,51 @@ public:
         if (stale)   // coming back on: start from a clean state
         {
             eq.resetMain(); other.eq.resetAllpass(); comp.reset(); if (os) os->reset();
+            compFirst = s.compFirst; swapGain = 1.0f;
             stale = false;
         }
 
-        eq.process (block);
+        // order switch: fade the path out (15 ms, raised cosine), swap at silence, fade back in
+        if (s.compFirst != compFirst && swapGain <= 0.0f) compFirst = s.compFirst;
+        const bool swapping = s.compFirst != compFirst || swapGain < 1.0f;
+
         other.eq.allpassOnOtherPath (block);   // phase-match the other path's EQ
+        if (! compFirst) eq.process (block);
         const bool compOn = comp.analyse (block, s.comp);
         auto up = os->processSamplesUp (block);
         if (compOn) comp.process (up, s.comp);
         os->processSamplesDown (block);
+        if (compFirst) eq.process (block);
 
         const int n = (int) block.getNumSamples();
+        smAudible.setTargetValue (s.audible ? 1.0f : 0.0f);
+        if (firstAudible) { smAudible.setCurrentAndTargetValue (smAudible.getTargetValue()); firstAudible = false; }
+        const float swapDir = s.compFirst != compFirst ? -swapStep : swapStep;
         float peak = 0.0f;
         for (size_t c = 0; c < block.getNumChannels(); ++c)
         {
             auto* x = block.getChannelPointer (c);
             auto g = smLevel;
-            for (int i = 0; i < n; ++i) { x[i] *= g.getNextValue(); peak = juce::jmax (peak, std::abs (x[i])); }
+            auto a = smAudible;
+            float sw = swapGain;
+            if (swapping)
+                for (int i = 0; i < n; ++i)
+                {
+                    sw = juce::jlimit (0.0f, 1.0f, sw + swapDir);
+                    const float shaped = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::pi * sw);
+                    x[i] *= g.getNextValue() * a.getNextValue() * shaped;
+                    peak = juce::jmax (peak, std::abs (x[i]));
+                }
+            else
+                for (int i = 0; i < n; ++i)
+                {
+                    x[i] *= g.getNextValue() * a.getNextValue();
+                    peak = juce::jmax (peak, std::abs (x[i]));
+                }
         }
         smLevel.skip (n);
+        smAudible.skip (n);
+        if (swapping) swapGain = juce::jlimit (0.0f, 1.0f, swapGain + swapDir * (float) n);
         // hold the highest peak until the UI reads it, so no block's peak is missed
         float prev = meterPeak.load();
         while (peak > prev && ! meterPeak.compare_exchange_weak (prev, peak)) {}
@@ -382,7 +414,8 @@ private:
     Compressor comp;
     std::unique_ptr<juce::dsp::Oversampling<float>> os;
     bool stale = true;
-    juce::SmoothedValue<float> smLevel;
-    bool first = true;
+    juce::SmoothedValue<float> smLevel, smAudible;
+    bool first = true, firstAudible = true, compFirst = false;
+    float swapGain = 1.0f, swapStep = 0.003f;
     std::atomic<float> meterPeak { 0.0f };
 };

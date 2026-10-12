@@ -60,6 +60,29 @@ private:
 };
 
 //==============================================================================
+// Small "swap" button between a strip's EQ and COMP icons: flips the order of the two
+// in that path. Toggle state = Comp first; drawn as two opposing arrows either way.
+class SwapButton : public juce::Button
+{
+public:
+    SwapButton() : juce::Button ("Swap order") { setClickingTogglesState (true); }
+
+    void paintButton (juce::Graphics& g, bool over, bool) override
+    {
+        auto r = getLocalBounds().toFloat();
+        const float cx = r.getCentreX(), cy = r.getCentreY(), h = juce::jmin (r.getHeight() * 0.42f, 6.0f);
+        g.setColour (over ? GlowLookAndFeel::text : GlowLookAndFeel::textDim);
+        juce::Path p;
+        // down arrow on the left, up arrow on the right
+        p.startNewSubPath (cx - 4.0f, cy - h); p.lineTo (cx - 4.0f, cy + h);
+        p.startNewSubPath (cx - 6.5f, cy + h - 2.5f); p.lineTo (cx - 4.0f, cy + h); p.lineTo (cx - 1.5f, cy + h - 2.5f);
+        p.startNewSubPath (cx + 4.0f, cy + h); p.lineTo (cx + 4.0f, cy - h);
+        p.startNewSubPath (cx + 1.5f, cy - h + 2.5f); p.lineTo (cx + 4.0f, cy - h); p.lineTo (cx + 6.5f, cy - h + 2.5f);
+        g.strokePath (p, juce::PathStrokeType (1.3f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+};
+
+//==============================================================================
 // Base panel: dark card with a title, an ON switch for the module and a close button.
 class ModulePanel : public juce::Component
 {

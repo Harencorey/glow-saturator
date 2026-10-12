@@ -44,6 +44,9 @@ void GlowProcessor::StripParams::bind (juce::AudioProcessorValueTreeState& s, co
     colour = get ("CompColour");
     hpf = get ("CompHpf");
     mix = get ("CompMix");
+    mute = get ("Mute");
+    solo = get ("Solo");
+    compFirst = get ("CompFirst");
 }
 
 void GlowProcessor::StripParams::read (ChannelStrip::Settings& st) const
@@ -62,6 +65,9 @@ void GlowProcessor::StripParams::read (ChannelStrip::Settings& st) const
     st.comp.colour = (int) std::lround (colour->load());
     st.comp.detectorHpf = hpf->load() > 0.5f;
     st.comp.mix = mix->load();
+    st.mute = mute->load() > 0.5f;
+    st.solo = solo->load() > 0.5f;
+    st.compFirst = compFirst->load() > 0.5f;
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout()
@@ -145,6 +151,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
         l.add (std::make_unique<AudioParameterChoice> (ParameterID { p + "CompColour", 1 }, P + "Comp Colour", colours, 0));
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompHpf", 1 }, P + "Comp Detector HPF", false));
         // parallel compression: blend of uncompressed signal (same path, same phase)
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "Mute", 1 }, P + "Mute", false));
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "Solo", 1 }, P + "Solo", false));
+        // signal order inside the path: EQ -> Comp (default) or Comp -> EQ
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompFirst", 1 }, P + "Comp Before EQ", false));
         addFloat (l, id ("CompMix").c_str(), (P + "Comp Mix").toRawUTF8(), { 0.0f, 100.0f, 0.1f }, 100.0f, pct);
     }
     return l;

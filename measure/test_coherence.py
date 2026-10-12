@@ -30,6 +30,12 @@ SETTINGS = {
     "everything + both comps w/ Mix + colour": dict(hpf=80, preDb=4, postDb=-3, wetEq=1, wetG2=6, wetQ2=2, wetG4=-5,
                                                    dryEq=1, dryG1=5, dryG3=-8, dryQ3=6, wetComp=1, wetIn=14, wetRatio=5,
                                                    wetColour=1, wetMix=50, dryComp=1, dryIn=10, dryColour=2, dryMix=30),
+    "same, both paths Comp -> EQ": dict(hpf=80, preDb=4, postDb=-3, wetEq=1, wetG2=6, wetQ2=2, wetG4=-5,
+                                        dryEq=1, dryG1=5, dryG3=-8, dryQ3=6, wetComp=1, wetIn=14, wetRatio=5,
+                                        wetColour=1, wetMix=50, dryComp=1, dryIn=10, dryColour=2, dryMix=30,
+                                        wetOrder=1, dryOrder=1),
+    "mixed order (wet Comp -> EQ, dry EQ -> Comp)": dict(wetEq=1, wetG2=8, wetQ2=3, dryEq=1, dryG3=-6, wetComp=1,
+                                                       wetIn=12, dryComp=1, dryIn=12, wetOrder=1),
 }
 CHECK = [20, 30, 50, 80, 120, 200, 300, 500, 1000, 2000, 4000, 6000, 8000, 12000, 16000]
 

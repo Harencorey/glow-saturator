@@ -16,7 +16,7 @@ public:
 
     static inline const juce::Colour bg { 0xff1b1714 }, panel { 0xff26201b }, section { 0xff2e2620 },
         amber { 0xffffa53a }, amberDim { 0xff7a4a1c }, text { 0xffe9dccb }, textDim { 0xff9c8c7a },
-        green { 0xff8fd16a }, red { 0xffe5533d };
+        green { 0xff8fd16a }, red { 0xffe5533d }, yellow { 0xfff2cf4a };
 };
 
 // A labelled rotary knob attached to a parameter.

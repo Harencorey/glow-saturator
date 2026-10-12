@@ -26,9 +26,9 @@ if(APPLE)
 endif()
 
 juce_add_plugin(Glow
-    COMPANY_NAME "Haren Audio"
-    BUNDLE_ID "com.harenaudio.glow"
-    PLUGIN_MANUFACTURER_CODE Hrna
+    COMPANY_NAME "Norka DSP"
+    BUNDLE_ID "com.norkadsp.glow"
+    PLUGIN_MANUFACTURER_CODE Nrka
     PLUGIN_CODE Glw1
     FORMATS ${GLOW_FORMATS}
     PRODUCT_NAME "Glow"

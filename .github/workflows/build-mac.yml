@@ -46,13 +46,13 @@ jobs:
           rm -rf ~/Library/Audio/Plug-Ins/Components/Glow.component ~/Library/Audio/Plug-Ins/VST3/Glow.vst3
           sudo installer -pkg out/Glow-Installer.pkg -target /
           ls -la /Library/Audio/Plug-Ins/Components/Glow.component /Library/Audio/Plug-Ins/VST3/Glow.vst3
-          pkgutil --pkgs | grep harenaudio
+          pkgutil --pkgs | grep norkadsp
 
       - name: Validate installed AU with Apple auval
         run: |
           killall -9 AudioComponentRegistrar 2>/dev/null || true
           sleep 3
-          auval -v aufx Glw1 Hrna | tee auval.log
+          auval -v aufx Glw1 Nrka | tee auval.log
           grep -q "AU VALIDATION SUCCEEDED" auval.log
 
       - name: Validate installed VST3 + AU with pluginval
@@ -86,7 +86,7 @@ jobs:
           The first time, macOS will say it can't verify the developer (it isn't Apple-notarized yet).
           Click **Done**, then go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to Glow-Installer.
           (Or right-click the .pkg and choose **Open**.) It installs the AU + VST3 and replaces any older Glow.
-          Rescan plug-ins in your DAW and look for **Haren Audio > Glow**. The version is shown in the plug-in window.
+          Rescan plug-ins in your DAW and look for **Norka DSP > Glow**. The version is shown in the plug-in window.
 
           The zips are only needed for manual installs.
           NOTES

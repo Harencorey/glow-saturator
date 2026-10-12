@@ -19,27 +19,27 @@ make_component () {   # name  source-bundle  install-location  identifier
              ${5:+--scripts "$5"} "$WORK/$name.pkg"
 }
 
-make_component au   "$ART/AU/Glow.component" "/Library/Audio/Plug-Ins/Components" "com.harenaudio.glow.au" "$HERE/scripts"
-make_component vst3 "$ART/VST3/Glow.vst3"    "/Library/Audio/Plug-Ins/VST3"       "com.harenaudio.glow.vst3"
+make_component au   "$ART/AU/Glow.component" "/Library/Audio/Plug-Ins/Components" "com.norkadsp.glow.au" "$HERE/scripts"
+make_component vst3 "$ART/VST3/Glow.vst3"    "/Library/Audio/Plug-Ins/VST3"       "com.norkadsp.glow.vst3"
 
 cat > "$WORK/distribution.xml" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
-    <title>Glow ${VERSION} (Haren Audio)</title>
+    <title>Glow ${VERSION} (Norka DSP)</title>
     <welcome mime-type="text/plain"><![CDATA[Glow tube saturator, version ${VERSION}.
 
 This installs the Audio Unit and VST3 into /Library/Audio/Plug-Ins for all users. Older copies are replaced.
-Rescan plug-ins in your DAW afterwards and look for Haren Audio > Glow.]]></welcome>
+Rescan plug-ins in your DAW afterwards and look for Norka DSP > Glow.]]></welcome>
     <options customize="allow" require-scripts="false" hostArchitectures="arm64,x86_64"/>
     <domains enable_localSystem="true"/>
     <choices-outline>
         <line choice="au"/>
         <line choice="vst3"/>
     </choices-outline>
-    <choice id="au" title="Audio Unit (Logic, GarageBand, Ableton, ...)"><pkg-ref id="com.harenaudio.glow.au"/></choice>
-    <choice id="vst3" title="VST3 (Ableton, Reaper, Cubase, Studio One, ...)"><pkg-ref id="com.harenaudio.glow.vst3"/></choice>
-    <pkg-ref id="com.harenaudio.glow.au" version="${VERSION}">au.pkg</pkg-ref>
-    <pkg-ref id="com.harenaudio.glow.vst3" version="${VERSION}">vst3.pkg</pkg-ref>
+    <choice id="au" title="Audio Unit (Logic, GarageBand, Ableton, ...)"><pkg-ref id="com.norkadsp.glow.au"/></choice>
+    <choice id="vst3" title="VST3 (Ableton, Reaper, Cubase, Studio One, ...)"><pkg-ref id="com.norkadsp.glow.vst3"/></choice>
+    <pkg-ref id="com.norkadsp.glow.au" version="${VERSION}">au.pkg</pkg-ref>
+    <pkg-ref id="com.norkadsp.glow.vst3" version="${VERSION}">vst3.pkg</pkg-ref>
 </installer-gui-script>
 XML
 

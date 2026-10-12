@@ -94,9 +94,11 @@ void GlowLookAndFeel::drawButtonBackground (Graphics& g, Button& b, const Colour
 {
     auto r = b.getLocalBounds().toFloat().reduced (1.0f);
     const bool on = b.getToggleState();
-    g.setColour (on ? amber : Colours::black.withAlpha (over ? 0.35f : 0.25f));
+    // buttons can set their own "on" colour (Mute red, Solo yellow); amber otherwise
+    const auto onCol = b.isColourSpecified (TextButton::buttonOnColourId) ? b.findColour (TextButton::buttonOnColourId) : amber;
+    g.setColour (on ? onCol : Colours::black.withAlpha (over ? 0.35f : 0.25f));
     g.fillRoundedRectangle (r, 4.0f);
-    g.setColour (on ? amber : textDim.withAlpha (0.6f));
+    g.setColour (on ? onCol : textDim.withAlpha (0.6f));
     g.drawRoundedRectangle (r, 4.0f, 1.0f);
 }
 
@@ -159,6 +161,18 @@ void GlowEditor::setupStrip (Strip& st, const String& prefix, const String& name
     addAndMakeVisible (st.meter);
     addAndMakeVisible (st.eqIcon);
     addAndMakeVisible (st.compIcon);
+    addAndMakeVisible (st.swap);
+    st.swapAttach = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, prefix + "CompFirst", st.swap);
+    st.swap.setTooltip ("Swap the order: EQ then Comp, or Comp then EQ (top icon runs first)");
+    st.mute.setup (*this, proc.apvts, prefix + "Mute", "M");
+    st.solo.setup (*this, proc.apvts, prefix + "Solo", "S");
+    st.mute.button.setColour (TextButton::buttonOnColourId, GlowLookAndFeel::red);
+    st.solo.button.setColour (TextButton::buttonOnColourId, GlowLookAndFeel::yellow);
+    st.mute.button.setTooltip ("Mute " + name);
+    st.solo.button.setTooltip ("Solo " + name);
+    st.compFirst = proc.apvts.getRawParameterValue (prefix + "CompFirst");
+    st.muteP = proc.apvts.getRawParameterValue (prefix + "Mute");
+    st.soloP = proc.apvts.getRawParameterValue (prefix + "Solo");
     st.attach = std::make_unique<AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, prefix + "Level", st.fader);
     st.eqOn = proc.apvts.getRawParameterValue (prefix + "EqOn");
     st.compOn = proc.apvts.getRawParameterValue (prefix + "CompOn");
@@ -211,6 +225,22 @@ void GlowEditor::timerCallback()
     }
     if (panel != nullptr) panel->refresh();
 
+    // chain order (icons stack top = first) and mute/solo state (name dims when not heard)
+    bool relayout = false;
+    const bool anySolo = dry.soloP->load() > 0.5f || wet.soloP->load() > 0.5f;
+    for (auto* st : { &dry, &wet })
+    {
+        const bool cf = st->compFirst->load() > 0.5f;
+        if (cf != st->shownCompFirst) { st->shownCompFirst = cf; relayout = true; }
+        const bool heard = st->muteP->load() < 0.5f && (! anySolo || st->soloP->load() > 0.5f);
+        if (heard != st->shownHeard)
+        {
+            st->shownHeard = heard;
+            st->label.setColour (Label::textColourId, heard ? GlowLookAndFeel::text : GlowLookAndFeel::textDim.withAlpha (0.45f));
+        }
+    }
+    if (relayout) resized();
+
     const float d = (float) drive.slider.getValue();
     if (std::abs (d - lastGlow) > 0.01f) { lastGlow = d; repaint (glowArea); }
 }
@@ -228,7 +258,7 @@ void GlowEditor::paint (Graphics& g)
     g.drawText ("GLOW", header, Justification::centredLeft);
     g.setColour (GlowLookAndFeel::textDim);
     g.setFont (FontOptions (12.0f));
-    g.drawText ("TUBE SATURATOR  //  HAREN AUDIO", header, Justification::centredRight);
+    g.drawText ("TUBE SATURATOR  //  NORKA DSP", header, Justification::centredRight);
 
     auto drawSection = [&g] (Rectangle<int> r, const String& name)
     {
@@ -275,9 +305,16 @@ void GlowEditor::layoutStrip (Strip& st, Rectangle<int> r)
     st.label.setBounds (r.removeFromTop (18));
     auto icons = r.removeFromRight (46);
     icons.removeFromTop (4);
-    st.eqIcon.setBounds (icons.removeFromTop (40).reduced (2));
-    icons.removeFromTop (6);
-    st.compIcon.setBounds (icons.removeFromTop (40).reduced (2));
+    // the icons stack in signal order; the swap button between them flips it
+    const bool compFirst = st.compFirst != nullptr && st.compFirst->load() > 0.5f;
+    st.shownCompFirst = compFirst;
+    (compFirst ? st.compIcon : st.eqIcon).setBounds (icons.removeFromTop (40).reduced (2));
+    st.swap.setBounds (icons.removeFromTop (16));
+    (compFirst ? st.eqIcon : st.compIcon).setBounds (icons.removeFromTop (40).reduced (2));
+    icons.removeFromTop (10);
+    auto ms = icons.removeFromTop (22);
+    st.mute.button.setBounds (ms.removeFromLeft (ms.getWidth() / 2).reduced (1, 0));
+    st.solo.button.setBounds (ms.reduced (1, 0));
     auto meterCol = r.removeFromRight (12);
     r.removeFromLeft (16);   // column for the dB scale
     st.fader.setBounds (r);

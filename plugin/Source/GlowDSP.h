@@ -182,6 +182,10 @@ public:
         hpfStage.plan (params.hpfHz > 10.5f, params.hpfHz, 0.0f, 0.70710678f, n);
         preStage.plan (true, params.preShelfHz, params.preShelfDb, 0.70710678f, n);
         postStage.plan (true, params.postShelfHz, params.postShelfDb, 0.70710678f, n);
+        // mute/solo (like a console: any solo mutes the un-soloed path; mute always wins)
+        const bool anySolo = params.dry.solo || params.wet.solo;
+        params.dry.audible = ! params.dry.mute && (! anySolo || params.dry.solo);
+        params.wet.audible = ! params.wet.mute && (! anySolo || params.wet.solo);
         const bool dryActive = dryStrip.isActive (params.dry);
         wetStrip.planEq (params.wet, wetStrip.isActive (params.wet), n);
         dryStrip.planEq (params.dry, dryActive, n);

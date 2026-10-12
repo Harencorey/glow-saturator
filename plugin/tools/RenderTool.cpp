@@ -1,6 +1,6 @@
 // GlowRender in.wav out.wav [name=value ...]
 //   names: drive even odd density hpf preHz preDb postHz postDb out block
-//   strips (prefix dry/wet): Level Eq F1-4 G1-4 Q1-4 LS HS Comp In Atk Rel Ratio Out Colour Hpf Mix
+//   strips (prefix dry/wet): Level Eq F1-4 G1-4 Q1-4 LS HS Comp In Atk Rel Ratio Out Colour Hpf Mix Mute Solo Order(1=comp first)
 //          e.g. wetEq=1 wetG2=4 wetComp=1 wetIn=12 wetRatio=7 dryLevel=-6
 //   e.g.   GlowRender in.wav out.wav drive=60 even=80 hpf=120 postDb=-3
 //   automation: at=<seconds> applies the settings after it at that time (block-accurate)
@@ -66,6 +66,9 @@ int main (int argc, char** argv)
             else if (k == "Colour") st.comp.colour = (int) v;
             else if (k == "Hpf")    st.comp.detectorHpf = v > 0.5f;
             else if (k == "Mix")    st.comp.mix = v;
+            else if (k == "Mute")   st.mute = v > 0.5f;
+            else if (k == "Solo")   st.solo = v > 0.5f;
+            else if (k == "Order")  st.compFirst = v > 0.5f;   // 1 = Comp -> EQ
             else return false;
         }
         else if (key == "out")     p.outputDb = v;

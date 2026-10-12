@@ -71,6 +71,7 @@ private:
         std::atomic<float>* lowShelf = nullptr, * highShelf = nullptr;
         std::atomic<float>* compOn = nullptr, * in = nullptr, * atk = nullptr, * rel = nullptr;
         std::atomic<float>* ratio = nullptr, * out = nullptr, * colour = nullptr, * hpf = nullptr, * mix = nullptr;
+        std::atomic<float>* mute = nullptr, * solo = nullptr, * compFirst = nullptr;
         void bind (juce::AudioProcessorValueTreeState&, const juce::String& prefix);
         void read (ChannelStrip::Settings&) const;
     };

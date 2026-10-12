@@ -1,4 +1,4 @@
-# Glow (Haren Audio tube saturator)
+# Glow (Norka DSP tube saturator)
 
 A two-stage tube saturator voiced against measurements of Waves BB Tubes.
 It uses original DSP; no third-party code or assets are included.
@@ -14,8 +14,8 @@ bash build_mac.sh ~/path/to/JUCE    # must be JUCE 8.x
 
 The script needs the Xcode command line tools (`xcode-select --install`), plus CMake (`brew install cmake`).
 It builds a universal (Apple Silicon + Intel) **AU, VST3 and Standalone** and installs
-the plug-ins into `~/Library/Audio/Plug-Ins/`. Rescan in your DAW and look for **Haren Audio > Glow**.
-For Logic, you can validate the AU with `auval -v aufx Glw1 Hrna`.
+the plug-ins into `~/Library/Audio/Plug-Ins/`. Rescan in your DAW and look for **Norka DSP > Glow**.
+For Logic, you can validate the AU with `auval -v aufx Glw1 Nrka`.
 
 ## Controls
 
@@ -44,10 +44,12 @@ For Logic, you can validate the AU with `auval -v aufx Glw1 Hrna`.
 | Control | What it does |
 |---|---|
 | **Dry / Wet faders** | −60 dB (Off) to +6 dB, each with a peak meter. The two are summed in parallel. The dry path is latency-aligned, so it never comb-filters. Defaults are Wet 0 dB and Dry Off. |
+| **M / S** | Mute and Solo per path, console-style: any Solo mutes the un-soloed path, and Mute always wins. Both fade over 10 ms, and the muted path keeps processing underneath, so un-muting is seamless and stays phase-locked. A path's name dims when you can't hear it. |
+| **Order (⇅)** | The EQ and COMP icons stack in signal order (top runs first). Click the little arrows between them to flip that path between EQ → Comp and Comp → EQ. The path fades out and back in (~30 ms) around the swap so it never clicks. |
 | **EQ icon** | Opens that path's 4-band parametric EQ with a response curve. **Drag a point** to set frequency/gain (hold Shift for frequency only), **scroll** over a point for Q, and **double-click** a point to reset its gain. Dragging switches a bypassed EQ on. Each band has Freq (20 Hz–20 kHz), Gain (±18 dB) and Q (0.1–10); bands 1 and 4 switch between shelf and bell. Settings glide over ~30 ms, so moves never zipper. Bands fade in and out (~60 ms) instead of switching. The icon lights up when the EQ is on. |
 | **COMP icon** | Opens that path's "Distressor-style" compressor. There's no threshold: **Input** drives into a fixed −18 dBFS threshold and **Output** sets the level after. Attack runs 0.05–30 ms, release 50 ms–3.5 s. Ratios are 1:1, 2, 3, 4, 6, 10, 20 and **NUKE** (brickwall), with the knee hardening as the ratio rises. **Distortion** offers Clean / Dist 2 (2nd harmonic) / Dist 3 (3rd harmonic), and at 1:1 the comp is just a colour box. **Detector HPF** keeps lows from pumping it. **Mix** blends the uncompressed signal back in (parallel compression inside the path; it's phase-exact because both sides of the blend share the same EQ and oversampling). Switching the comp on/off fades over 20 ms. Includes a gain-reduction meter. |
 
-Signal order in each path: EQ → Comp (with Mix) → fader.
+Signal order in each path: EQ → Comp (with Mix) → fader → mute/solo, or Comp → EQ when flipped.
 
 At the default settings (Even, Odd and Density at 50 %, HPF off, shelves at 0 dB, Wet 0 dB / Dry Off,
 EQ and Comp off) the output is bit-identical to v0.1.5, the BB Tubes-matched version.

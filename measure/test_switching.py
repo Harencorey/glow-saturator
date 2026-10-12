@@ -22,6 +22,12 @@ SCEN = {
     "comps on/off, Mix moves": (1000, ["wetIn=18", "wetColour=1", "wetMix=50", "dryIn=12", "dryColour=2", "dryMix=30",
                                        "at=0.5", "wetComp=1", "at=1.0", "dryComp=1", "at=1.5", "wetMix=100", "dryMix=0",
                                        "at=2.0", "wetComp=0", "at=2.5", "dryComp=0"]),
+    "mute / solo toggles": (1000, ["at=0.5", "wetMute=1", "at=1.0", "wetMute=0", "drySolo=1", "at=1.5", "wetSolo=1",
+                                   "at=2.0", "drySolo=0", "wetSolo=0", "dryMute=1", "at=2.5", "dryMute=0"]),
+    "order swaps with EQ + comps on": (1000, ["wetEq=1", "wetG3=6", "wetF3=1000", "dryEq=1", "dryG2=-6", "dryF2=900",
+                                              "wetComp=1", "wetIn=12", "dryComp=1", "dryIn=12",
+                                              "at=0.5", "wetOrder=1", "at=1.0", "dryOrder=1", "at=1.5", "wetOrder=0",
+                                              "at=2.0", "dryOrder=0"]),
 }
 
 

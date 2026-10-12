@@ -22,4 +22,4 @@ echo
 echo "Installed:"
 ls -d ~/Library/Audio/Plug-Ins/Components/Glow.component ~/Library/Audio/Plug-Ins/VST3/Glow.vst3 2>/dev/null || true
 echo "Standalone app: $(pwd)/build-mac/Glow_artefacts/Release/Standalone/Glow.app"
-echo "Rescan plug-ins in your DAW and look for Haren Audio > Glow.  (Logic: auval -v aufx Glw1 Hrna)"
+echo "Rescan plug-ins in your DAW and look for Norka DSP > Glow.  (Logic: auval -v aufx Glw1 Nrka)"

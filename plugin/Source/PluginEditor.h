@@ -25,6 +25,11 @@ private:
         LevelMeter meter;
         ModuleIcon eqIcon { ModuleIcon::Kind::eq }, compIcon { ModuleIcon::Kind::comp };
         std::atomic<float>* eqOn = nullptr, * compOn = nullptr;
+        SwapButton swap;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> swapAttach;
+        ToggleParam mute, solo;
+        std::atomic<float>* compFirst = nullptr, * muteP = nullptr, * soloP = nullptr;
+        bool shownCompFirst = false, shownHeard = true;
     };
     void setupStrip (Strip&, const juce::String& prefix, const juce::String& name);
     void layoutStrip (Strip&, juce::Rectangle<int>);

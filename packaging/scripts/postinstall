@@ -10,5 +10,8 @@ if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ]; then
         rm -rf "$USER_HOME/Library/Audio/Plug-Ins/VST3/Glow.vst3"
     fi
 fi
+# Glow used to ship as "Haren Audio" (same files, now Norka DSP): drop the old installer receipts
+pkgutil --forget com.harenaudio.glow.au >/dev/null 2>&1 || true
+pkgutil --forget com.harenaudio.glow.vst3 >/dev/null 2>&1 || true
 killall -9 AudioComponentRegistrar 2>/dev/null || true
 exit 0
