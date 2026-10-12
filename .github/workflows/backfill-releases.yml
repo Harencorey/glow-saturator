@@ -26,7 +26,7 @@ jobs:
           # Everything goes to a log; on failure its tail is posted as an error annotation
           # (readable through the API even where raw logs aren't).
           backfill() {
-          set -ex
+          set -euxo pipefail
           # run id : build number : label
           while IFS=: read -r RUN N LABEL; do
             [ -z "$RUN" ] && continue
@@ -44,8 +44,7 @@ jobs:
               echo
               echo "**Install:** download **Glow-Installer.pkg** and double-click it. Installing any version replaces whatever Glow you have."
             } > notes.md
-            git tag -f "$TAG" "$SHA"
-            git push -f origin "refs/tags/$TAG"
+            # tags were pushed separately (a workflow token can't tag commits with older workflow files)
             gh release create "$TAG" dl/* --verify-tag --latest=false --title "Glow 0.1.$N" --notes-file notes.md
             gh release edit "$TAG" --draft=false
           done <<'LIST'
