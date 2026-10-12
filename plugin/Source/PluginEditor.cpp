@@ -243,9 +243,27 @@ void GlowEditor::timerCallback()
             autoReadout.setText (on ? (a > 0.05f ? "+" : "") + String (a, 1) + " dB" : String(), dontSendNotification);
         }
     }
+    // Link: the PRE shelf becomes the master (relabelled), the POST shelf follows it
+    // automatically, so its own knobs are greyed out and ignored.
     const bool link = linkButton.getToggleState();
-    postFreq.slider.setEnabled (! link);
-    postGain.slider.setEnabled (! link);
+    if (link != shownLink)
+    {
+        shownLink = link;
+        for (auto* k : { &postFreq, &postGain })
+        {
+            k->slider.setEnabled (! link);
+            k->slider.setAlpha (link ? 0.3f : 1.0f);
+            k->label.setAlpha (link ? 0.3f : 1.0f);
+        }
+        preFreq.label.setText (link ? "LINKED FREQ" : "SHELF FREQ", dontSendNotification);
+        preGain.label.setText (link ? "LINKED GAIN" : "SHELF GAIN", dontSendNotification);
+        for (auto* k : { &preFreq, &preGain })
+            k->label.setColour (Label::textColourId, link ? GlowLookAndFeel::amber : GlowLookAndFeel::textDim);
+        preFreq.slider.setTooltip (link ? "Linked: sets both shelves (post = same frequency)" : String());
+        preGain.slider.setTooltip (link ? "Linked: boosts the highs into the tubes and cuts them by the same amount after" : String());
+        postFreq.slider.setTooltip (link ? "Following the pre shelf (Link is on)" : String());
+        postGain.slider.setTooltip (link ? "Following the pre shelf at the opposite gain (Link is on)" : String());
+    }
 
     dry.meter.push (proc.takeDryPeak());
     wet.meter.push (proc.takeWetPeak());

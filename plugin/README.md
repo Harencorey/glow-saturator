@@ -47,7 +47,7 @@ A **\*** after the name means you've changed something since loading it.
 | Control | What it does |
 |---|---|
 | **Shelf Freq / Gain** | High shelf, 1–16 kHz, ±12 dB. |
-| **Link** | The post shelf mirrors the pre shelf (same frequency, opposite gain), so the top end saturates harder or softer while the overall tonal balance stays put. This replaces the old Tone knob. |
+| **Link** | The post shelf mirrors the pre shelf (same frequency, opposite gain), so the top end saturates harder or softer while the overall tonal balance stays put. While linked, the pre shelf knobs turn amber and read LINKED FREQ / LINKED GAIN (they now set both shelves), and the post shelf knobs grey out. This replaces the old Tone knob. |
 | **Output** | −24 to +12 dB trim (after Dry + Wet are summed). |
 | **Auto** | Master auto gain (note: Drive 0 is not a bypass. The tube voicing EQ stays in, about +1.6 dB around 100 Hz, so AUTO typically shows −0.1 to −1 dB there, more on bass-heavy material): keeps the output as loud as the input (K-weighted, like LUFS, averaged over ~3 s), so Drive/EQ/comp moves don't fool your ears and bypass A/Bs are fair. The readout shows what it's applying (±18 dB max). It holds through silence and only updates while audio is playing. Output trims on top. It's slow on purpose: it matches loudness, it doesn't ride the level. |
 
