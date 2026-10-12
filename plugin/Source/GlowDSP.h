@@ -10,12 +10,14 @@
 //
 //  in ─┬─ HPF → pre high shelf → input coupling (HPFs) → low bump → presence dip
 //      │   → [oversampled to ~384 kHz: input tube stage → coupling cap → Drive(+Odd) gain → output stage]
-//      │   → DC blocker → auto-gain → post high shelf → WET strip (EQ → Comp → fader) ─┐
-//      └─ dry → same oversampling filters (no saturation) → phase-match all-pass → DRY strip ─┴─ sum → Output
+//      │   → DC blocker → auto-gain → post high shelf → WET strip (EQ → Comp/Mix → fader) ─┐
+//      └─ dry → same oversampling filters (no saturation) → phase-match all-passes → DRY strip ─┴─ sum → Output
 //
 // Dry/Wet phase: the dry path goes through an identical copy of the oversampling filters, so
 // its latency and top-end phase match the wet path exactly, plus an all-pass (flat magnitude)
-// fitted to the wet path's fixed low-end filters. Dry + Wet therefore sum without cancelling.
+// fitted to the wet path's fixed low-end filters. Every user filter (HPF, shelves, both strip
+// EQs) is phase-coherent (PhaseCoherent.h): its phase is exactly an all-pass, and the other
+// path runs that all-pass. So Dry + Wet sum in phase whatever either side is doing.
 //
 // Even/Odd: each tube stage's curve f(x) is split into its odd part (f(x)-f(-x))/2 and
 // its even part (f(x)+f(-x))/2. Only the even part makes even harmonics, so scaling it
@@ -95,6 +97,9 @@ public:
         wetStrip.prepare (sr, channels, maxBlock);
 
         ch.assign ((size_t) channels, Channel {});
+        hpfStage.prepare (sr, maxBlock, Coherent::Kind::highPass);
+        preStage.prepare (sr, maxBlock, Coherent::Kind::highShelf);
+        postStage.prepare (sr, maxBlock, Coherent::Kind::highShelf);
         for (auto& c : ch)
         {
             c.hp1.setOnePoleHighPass (DriveMap::eq.hp1Fc, sr);
@@ -104,16 +109,11 @@ public:
             c.dc.setHighPass (DriveMap::post.dcFc, DriveMap::post.dcQ, sr);
             c.inter.setHighPass (DriveMap::st1.hpFc, DriveMap::st1.hpQ,
                                  sr * (double) oversampler->getOversamplingFactor());
-            c.hpf.setIdentity();
-            c.preShelf.setIdentity();
-            c.postShelf.setIdentity();
             for (int k = 0; k < DryPhase::numSecondOrder; ++k)
                 c.dryPhase[(size_t) k].setAllPass (DryPhase::secondOrder[k].fc, DryPhase::secondOrder[k].q, sr);
         }
         knee1.build (DriveMap::st1.sharp);
         knee2.build (DriveMap::at (params.drive).sharp);
-        hpfOn = false;
-        lastHpf = lastPreHz = lastPreDb = lastPostHz = lastPostDb = -1.0e9f;
 
         smPre.reset (sr, 0.05);
         smPost.reset (sr, 0.05);
@@ -122,8 +122,6 @@ public:
         smDensity.reset (sr, 0.05);
         smEven.reset (sr, 0.05);
         smOdd.reset (sr, 0.05);
-        for (auto* v : { &smHpf, &smPreHz, &smPreDb, &smPostHz, &smPostDb })
-            v->reset (sr, 0.05);
         firstBlock = true;
         reset();
     }
@@ -138,9 +136,11 @@ public:
         {
             c.hp1.reset(); c.hp2.reset(); c.bump.reset(); c.dip.reset();
             c.dc.reset(); c.inter.reset();
-            c.hpf.reset(); c.preShelf.reset(); c.postShelf.reset();
             for (auto& f : c.dryPhase) f.reset();
         }
+        for (auto* m : { &hpfMain, &preMain, &postMain }) m->reset();
+        for (auto* a : { &hpfAp, &preAp, &postAp }) a->reset();
+        for (auto* st : { &hpfStage, &preStage, &postStage }) st->snapNext();
         oddMakeup = 1.0f;
         oddPowAvg = refPowAvg = 0.0f;
     }
@@ -158,11 +158,6 @@ public:
         smDensity.setTargetValue (p.density);
         smEven.setTargetValue (p.even);
         smOdd.setTargetValue (p.odd);
-        smHpf.setTargetValue (p.hpfHz);
-        smPreHz.setTargetValue (p.preShelfHz);
-        smPreDb.setTargetValue (p.preShelfDb);
-        smPostHz.setTargetValue (p.postShelfHz);
-        smPostDb.setTargetValue (p.postShelfDb);
         smOut.setTargetValue (juce::Decibels::decibelsToGain (p.outputDb));
     }
 
@@ -179,20 +174,27 @@ public:
             smDensity.setCurrentAndTargetValue (params.density);
             smEven.setCurrentAndTargetValue (params.even);
             smOdd.setCurrentAndTargetValue (params.odd);
-            for (auto* v : { &smHpf, &smPreHz, &smPreDb, &smPostHz, &smPostDb })
-                v->setCurrentAndTargetValue (v->getTargetValue());
             smOut.setCurrentAndTargetValue (smOut.getTargetValue());
         }
 
-        // dry path: copy of the input through the same oversampling filters + phase-match all-pass
+        // This block's filter plans. Both paths read the same plans, so every filter and its
+        // all-pass twin move (and switch in/out) in lockstep.
+        hpfStage.plan (params.hpfHz > 10.5f, params.hpfHz, 0.0f, 0.70710678f, n);
+        preStage.plan (true, params.preShelfHz, params.preShelfDb, 0.70710678f, n);
+        postStage.plan (true, params.postShelfHz, params.postShelfDb, 0.70710678f, n);
+        const bool dryActive = dryStrip.isActive (params.dry);
+        wetStrip.planEq (params.wet, wetStrip.isActive (params.wet), n);
+        dryStrip.planEq (params.dry, dryActive, n);
+
+        // dry path: copy of the input through the same oversampling filters + phase-match all-passes
         auto dry = juce::dsp::AudioBlock<float> (dryBuf).getSubsetChannelBlock (0, (size_t) nch).getSubBlock (0, (size_t) n);
-        const bool dryActive = params.dry.levelDb > ChannelStrip::kOffDb || ! dryStrip.isMutedSteady();
         if (dryActive)
         {
             if (dryStale)   // fader just came up: start the dry filters from a clean state
             {
                 dryOversampler->reset();
                 for (auto& c : ch) for (auto& f : c.dryPhase) f.reset();
+                for (auto* a : { &hpfAp, &preAp, &postAp }) a->reset();
                 dryStale = false;
             }
             dry.copyFrom (block.getSubsetChannelBlock (0, (size_t) nch));
@@ -209,6 +211,10 @@ public:
                     d[i] = (float) v;
                 }
             }
+            // the wet path's HPF and shelves, as all-passes
+            if (hpfStage.busy())  hpfAp.process (hpfStage, dry);
+            if (preStage.busy())  preAp.process (preStage, dry);
+            if (postStage.busy()) postAp.process (postStage, dry);
         }
         else
         {
@@ -236,7 +242,6 @@ public:
         const float oddInv = juce::Decibels::decibelsToGain (-oddDb);
         smPre.setTargetValue (juce::Decibels::decibelsToGain (shape.preDb + oddDb));
         smPost.setTargetValue (juce::Decibels::decibelsToGain (shape.postDb) * oddMakeup);
-        updateFilters (n);
         if (firstBlock)
         {
             smPre.setCurrentAndTargetValue (smPre.getTargetValue());
@@ -245,6 +250,9 @@ public:
         }
 
         // ---- base rate: pre-EQ ----
+        auto wetIn = block.getSubsetChannelBlock (0, (size_t) nch);
+        if (hpfStage.busy()) hpfMain.process (hpfStage, wetIn);
+        if (preStage.busy()) preMain.process (preStage, wetIn);
         for (int c = 0; c < nch; ++c)
         {
             auto* x = block.getChannelPointer ((size_t) c);
@@ -252,8 +260,6 @@ public:
             for (int i = 0; i < n; ++i)
             {
                 double v = (double) x[i];
-                if (hpfOn) v = s.hpf.process (v);
-                v = s.preShelf.process (v);
                 v = s.hp1.process (v);
                 v = s.hp2.process (v);
                 v = s.bump.process (v);
@@ -321,18 +327,18 @@ public:
             auto g = smPost;
             for (int i = 0; i < n; ++i)
             {
-                double v = s.dc.process ((double) y[i]);
-                v = s.postShelf.process (v * g.getNextValue());
-                y[i] = (float) v;
+                y[i] = (float) (s.dc.process ((double) y[i]) * g.getNextValue());
             }
         }
         smPost.skip (n);
+        if (postStage.busy()) postMain.process (postStage, wetIn);
 
         // channel strips, then sum (a muted dry path costs nothing)
         auto wetBlock = block.getSubsetChannelBlock (0, (size_t) nch);
-        wetStrip.process (wetBlock, params.wet);
-        dryStrip.process (dry, params.dry);
-        wetBlock.add (dry);
+        wetStrip.process (wetBlock, params.wet, dryStrip);
+        dryStrip.process (dry, params.dry, wetStrip);
+        if (testSolo == 2) wetBlock.copyFrom (dry);    // measurement hook (render tool only)
+        else if (testSolo != 1) wetBlock.add (dry);
 
         for (int c = 0; c < nch; ++c)
         {
@@ -394,44 +400,8 @@ public:
 private:
     size_t osStages = 3;   // set in prepare() from the sample rate
 
-    // Smoothed per block; coefficients only recomputed when a value actually moves.
-    void updateFilters (int n)
-    {
-        const float hz = smHpf.skip (n);
-        const float preHz = smPreHz.skip (n), preDb = smPreDb.skip (n);
-        const float postHz = smPostHz.skip (n), postDb = smPostDb.skip (n);
-        const double nyq = 0.45 * sr;
-
-        if (std::abs (hz - lastHpf) > 1.0e-3f)
-        {
-            lastHpf = hz;
-            const bool wasOn = hpfOn;
-            hpfOn = hz > 10.5f;   // bottom of the range = off
-            for (auto& c : ch)
-            {
-                if (hpfOn && ! wasOn) c.hpf.reset();   // no stale state when switching back on
-                if (hpfOn) c.hpf.setHighPass (juce::jmin ((double) hz, nyq), 0.70710678, sr);
-            }
-        }
-        if (std::abs (preHz - lastPreHz) > 1.0e-2f || std::abs (preDb - lastPreDb) > 1.0e-4f)
-        {
-            lastPreHz = preHz; lastPreDb = preDb;
-            for (auto& c : ch)
-                if (std::abs (preDb) < 1.0e-3f) c.preShelf.setIdentity();
-                else c.preShelf.setHighShelf (juce::jmin ((double) preHz, nyq), preDb, 0.70710678, sr);
-        }
-        if (std::abs (postHz - lastPostHz) > 1.0e-2f || std::abs (postDb - lastPostDb) > 1.0e-4f)
-        {
-            lastPostHz = postHz; lastPostDb = postDb;
-            for (auto& c : ch)
-                if (std::abs (postDb) < 1.0e-3f) c.postShelf.setIdentity();
-                else c.postShelf.setHighShelf (juce::jmin ((double) postHz, nyq), postDb, 0.70710678, sr);
-        }
-    }
-
     struct Channel
     {
-        Biquad hpf, preShelf, postShelf;   // user EQ
         Biquad hp1, hp2, bump, dip, dc;    // fixed (measured) EQ
         Biquad inter; // interstage coupling cap, runs at the oversampled rate
         std::array<Biquad, DryPhase::numSecondOrder> dryPhase;   // dry-path phase match
@@ -454,11 +424,15 @@ public:
 private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smPre { 1.0f }, smPost { 1.0f }, smOut { 1.0f };
     juce::SmoothedValue<float> smDrive, smDensity, smEven, smOdd;
-    juce::SmoothedValue<float> smHpf, smPreHz, smPreDb, smPostHz, smPostDb;
-    bool firstBlock = true, hpfOn = false;
+    bool firstBlock = true;
+    // user HPF + pre/post shelves: plans, the wet-path filters, and their dry-path all-passes
+    Coherent::Stage hpfStage, preStage, postStage;
+    Coherent::Main hpfMain, preMain, postMain;
+    Coherent::Allpass hpfAp, preAp, postAp;
     float oddMakeup = 1.0f, oddPowAvg = 0.0f, refPowAvg = 0.0f;
-    float lastHpf = -1.0e9f, lastPreHz = -1.0e9f, lastPreDb = -1.0e9f, lastPostHz = -1.0e9f, lastPostDb = -1.0e9f;
     Params params;
     KneeTable knee1, knee2;   // input stage (fixed), output stage (follows Drive)
     bool dryStale = true;     // dry filters skipped while the Dry fader is off
+public:
+    int testSolo = 0;         // offline measurement only: 1 = output wet path only, 2 = dry only
 };

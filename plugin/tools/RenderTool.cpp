@@ -1,8 +1,11 @@
 // GlowRender in.wav out.wav [name=value ...]
 //   names: drive even odd density hpf preHz preDb postHz postDb out block
-//   strips (prefix dry/wet): Level Eq F1-4 G1-4 Q1-4 LS HS Comp In Atk Rel Ratio Out Colour Hpf
+//   strips (prefix dry/wet): Level Eq F1-4 G1-4 Q1-4 LS HS Comp In Atk Rel Ratio Out Colour Hpf Mix
 //          e.g. wetEq=1 wetG2=4 wetComp=1 wetIn=12 wetRatio=7 dryLevel=-6
 //   e.g.   GlowRender in.wav out.wav drive=60 even=80 hpf=120 postDb=-3
+//   automation: at=<seconds> applies the settings after it at that time (block-accurate)
+//          e.g. wetEq=1 wetG2=6 at=1.5 wetEq=0 at=3 wetEq=1
+//   solo=1 / solo=2: output only the wet / dry path (both still processed) - for measurements
 // Runs the plugin's DSP offline, in host-sized blocks, and writes a 32-bit float WAV.
 // The output is latency-compensated so it lines up sample-for-sample with the input.
 #include <juce_audio_formats/juce_audio_formats.h>
@@ -19,10 +22,18 @@ int main (int argc, char** argv)
     juce::File out (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
 
     GlowDSP::Params p;
-    int block = 512;
+    int block = 512, solo = 0;
+    // settings before the first at= apply from the start; each at=<seconds> starts a new
+    // automation point whose settings are applied on top of the previous ones at that time
+    std::vector<std::pair<double, std::vector<juce::String>>> points { { 0.0, {} } };
     for (int a = 3; a < argc; ++a)
     {
         const juce::String arg (argv[a]);
+        if (arg.startsWith ("at=")) points.push_back ({ arg.substring (3).getDoubleValue(), {} });
+        else points.back().second.push_back (arg);
+    }
+    auto apply = [&p, &block, &solo] (const juce::String& arg) -> bool
+    {
         const auto key = arg.upToFirstOccurrenceOf ("=", false, false);
         const float v = arg.fromFirstOccurrenceOf ("=", false, false).getFloatValue();
         if      (key == "drive")   p.drive = v;
@@ -54,12 +65,20 @@ int main (int argc, char** argv)
             else if (k == "Out")    st.comp.outputDb = v;
             else if (k == "Colour") st.comp.colour = (int) v;
             else if (k == "Hpf")    st.comp.detectorHpf = v > 0.5f;
-            else { std::printf ("unknown option %s\n", argv[a]); return 1; }
+            else if (k == "Mix")    st.comp.mix = v;
+            else return false;
         }
         else if (key == "out")     p.outputDb = v;
         else if (key == "block")   block = juce::jmax (1, (int) v);
-        else { std::printf ("unknown option %s\n", argv[a]); return 1; }
-    }
+        else if (key == "solo")    solo = (int) v;   // 1 = wet path only, 2 = dry path only (both still run)
+        else return false;
+        return true;
+    };
+    for (auto& pt : points)
+        for (auto& arg : pt.second)
+            if (! apply (arg)) { std::printf ("unknown option %s\n", arg.toRawUTF8()); return 1; }
+    p = GlowDSP::Params {};
+    for (auto& arg : points.front().second) apply (arg);
 
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
@@ -71,6 +90,7 @@ int main (int argc, char** argv)
     GlowDSP dsp;
     dsp.prepare (reader->sampleRate, block, nch);
     dsp.setParams (p);
+    dsp.testSolo = solo;
     const int lat = dsp.getLatencySamples();
 
     juce::AudioBuffer<float> buf (nch, len + lat + block);
@@ -78,8 +98,15 @@ int main (int argc, char** argv)
     reader->read (&buf, 0, len, 0, true, true);
 
     const double t0 = juce::Time::getMillisecondCounterHiRes();
+    size_t nextPoint = 1;
     for (int start = 0; start < buf.getNumSamples(); start += block)
     {
+        while (nextPoint < points.size() && start >= (int) (points[nextPoint].first * reader->sampleRate))
+        {
+            for (auto& arg : points[nextPoint].second) apply (arg);
+            dsp.setParams (p);
+            ++nextPoint;
+        }
         const int n = juce::jmin (block, buf.getNumSamples() - start);
         juce::dsp::AudioBlock<float> b (buf);
         auto sub = b.getSubBlock ((size_t) start, (size_t) n);

@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_dsp/juce_dsp.h>
 #include "Biquad.h"
+#include "PhaseCoherent.h"
 
 #ifndef GLOW_STRIP_OS_MAXQ
  #define GLOW_STRIP_OS_MAXQ false   // lighter filters: lower latency for the colour stage
@@ -20,114 +21,78 @@ struct EqSettings
     bool highShelf = true;   // band 4: shelf or bell
 };
 
+// 4-band EQ built from phase-coherent bands (see PhaseCoherent.h). The path that owns the
+// EQ runs the bands; the other path runs their all-passes (allpassOnOtherPath), so the two
+// stay in phase whatever this EQ does.
 class FourBandEQ
 {
 public:
-    void prepare (double sampleRate, int numChannels)
+    void prepare (double sampleRate, int maxBlock)
     {
         sr = sampleRate;
-        nch = juce::jlimit (1, kMaxCh, numChannels);
-        for (auto& b : bands) for (auto& f : b) { f.setIdentity(); f.reset(); }
-        last = {};
-        last.freq[0] = -1.0f;   // force a coefficient update on the first block
-        wasOn = false;
+        for (int b = 0; b < 4; ++b) stages[(size_t) b].prepare (sr, maxBlock, kindFor (b, true, true));
+        reset();
     }
 
-    void reset() { for (auto& b : bands) for (auto& f : b) f.reset(); }
+    void reset() { for (auto& m : main) m.reset(); for (auto& a : comp) a.reset(); }
+    void snap() { for (auto& st : stages) st.snapNext(); }
 
-    // Settings glide to their targets (~30 ms) so dragging bands never zippers; coefficients
-    // are recomputed per block only while something is actually moving.
-    void process (juce::dsp::AudioBlock<float>& block, const EqSettings& target)
+    // Once per block, before either path is processed. 'allowed' = this path is audible.
+    void plan (const EqSettings& s, bool allowed, int n)
     {
-        if (! target.on) { wasOn = false; return; }
-        if (! wasOn) { reset(); wasOn = true; cur = target; last.freq[0] = -1.0f; }   // start clean, no glide
-        const float a = std::exp (-(float) block.getNumSamples() / (0.03f * (float) sr));
         for (int b = 0; b < 4; ++b)
         {
-            cur.freq[b] = std::exp (a * std::log (cur.freq[b]) + (1.0f - a) * std::log (target.freq[b]));   // glide in octaves
-            cur.gain[b] = a * cur.gain[b] + (1.0f - a) * target.gain[b];
-            cur.q[b] = a * cur.q[b] + (1.0f - a) * target.q[b];
-        }
-        cur.on = target.on; cur.lowShelf = target.lowShelf; cur.highShelf = target.highShelf;
-        const EqSettings& s = cur;
-        if (changed (s)) { updateCoefficients (s); last = s; }
-
-        const int n = (int) block.getNumSamples();
-        const int ch = juce::jmin ((int) block.getNumChannels(), nch);
-        for (int c = 0; c < ch; ++c)
-        {
-            auto* x = block.getChannelPointer ((size_t) c);
-            auto& f = bands[(size_t) c];
-            for (int i = 0; i < n; ++i)
+            auto& st = stages[(size_t) b];
+            const auto k = kindFor (b, s.lowShelf, s.highShelf);
+            if (k != st.getKind())
             {
-                double v = x[i];
-                v = f[0].process (v); v = f[1].process (v); v = f[2].process (v); v = f[3].process (v);
-                x[i] = (float) v;
+                // shelf <-> bell: different filter, so start it fresh (the toggle is a click anyway)
+                st.setKind (k);
+                st.snapNext();
             }
+            st.plan (s.on && allowed, s.freq[b], s.gain[b], s.q[b], n);
         }
     }
+
+    // own path: the bands
+    void process (juce::dsp::AudioBlock<float>& block)
+    {
+        for (int b = 0; b < 4; ++b)
+            if (stages[(size_t) b].busy()) main[(size_t) b].process (stages[(size_t) b], block);
+    }
+
+    // the other path: this EQ's all-passes (state lives here, one set per EQ)
+    void allpassOnOtherPath (juce::dsp::AudioBlock<float>& block)
+    {
+        for (int b = 0; b < 4; ++b)
+            if (stages[(size_t) b].busy()) comp[(size_t) b].process (stages[(size_t) b], block);
+    }
+    void resetMain() { for (auto& m : main) m.reset(); }
+    void resetAllpass() { for (auto& a : comp) a.reset(); }
 
     // Magnitude response in dB at frequency f (for drawing the curve in the UI).
     static float responseDb (const EqSettings& s, double f, double sampleRate = 48000.0)
     {
         double total = 0.0;
         for (int b = 0; b < 4; ++b)
-        {
-            Biquad q;
-            design (q, s, b, sampleRate);
-            total += magDb (q, f, sampleRate);
-        }
+            if (std::abs (s.gain[b]) >= 0.01f)
+                total += Coherent::Stage::responseDb (kindFor (b, s.lowShelf, s.highShelf), s.freq[b], s.gain[b],
+                                                      juce::jmax (0.1f, s.q[b]), f, sampleRate);
         return (float) total;
     }
 
 private:
-    static constexpr int kMaxCh = 2;
-
-    static void design (Biquad& f, const EqSettings& s, int b, double sr)
+    static Coherent::Kind kindFor (int b, bool lowShelf, bool highShelf)
     {
-        const double fc = juce::jlimit (10.0, 0.45 * sr, (double) s.freq[b]);
-        const double g = s.gain[b], q = juce::jmax (0.1f, s.q[b]);
-        if (std::abs (g) < 1.0e-3) { f.setIdentity(); return; }
-        if (b == 0 && s.lowShelf)       f.setLowShelf (fc, g, q, sr);
-        else if (b == 3 && s.highShelf) f.setHighShelf (fc, g, q, sr);
-        else                            f.setPeak (fc, g, q, sr);
-    }
-
-    static double magDb (const Biquad& f, double freq, double sr)
-    {
-        const std::complex<double> z = std::polar (1.0, -2.0 * juce::MathConstants<double>::pi * freq / sr);
-        const auto num = f.b0 + f.b1 * z + f.b2 * z * z;
-        const auto den = 1.0 + f.a1 * z + f.a2 * z * z;
-        return 20.0 * std::log10 (std::abs (num / den) + 1.0e-12);
-    }
-
-    bool changed (const EqSettings& s) const
-    {
-        for (int b = 0; b < 4; ++b)
-            if (std::abs (s.freq[b] - last.freq[b]) > 1.0e-4f || std::abs (s.gain[b] - last.gain[b]) > 1.0e-5f
-                || std::abs (s.q[b] - last.q[b]) > 1.0e-5f) return true;
-        return s.lowShelf != last.lowShelf || s.highShelf != last.highShelf;
-    }
-
-    void updateCoefficients (const EqSettings& s)
-    {
-        for (int b = 0; b < 4; ++b)
-        {
-            Biquad proto;
-            design (proto, s, b, sr);
-            for (int c = 0; c < nch; ++c)
-            {
-                auto& f = bands[(size_t) c][(size_t) b];
-                f.b0 = proto.b0; f.b1 = proto.b1; f.b2 = proto.b2; f.a1 = proto.a1; f.a2 = proto.a2;  // keep state: no clicks
-            }
-        }
+        if (b == 0 && lowShelf) return Coherent::Kind::lowShelf;
+        if (b == 3 && highShelf) return Coherent::Kind::highShelf;
+        return Coherent::Kind::peak;
     }
 
     double sr = 48000.0;
-    int nch = 2;
-    std::array<std::array<Biquad, 4>, kMaxCh> bands;
-    EqSettings last, cur;
-    bool wasOn = false;
+    std::array<Coherent::Stage, 4> stages;
+    std::array<Coherent::Main, 4> main;
+    std::array<Coherent::Allpass, 4> comp;
 };
 
 //==============================================================================
@@ -145,6 +110,7 @@ struct CompSettings
     float outputDb = 0.0f;    // -24 .. +24 dB
     int colour = 0;           // 0 clean, 1 Dist 2 (2nd harmonic), 2 Dist 3 (3rd harmonic)
     bool detectorHpf = false; // 100 Hz high-pass on the detector only
+    float mix = 100.0f;       // 0..100 %: parallel blend of the uncompressed signal
 };
 
 class Compressor
@@ -154,16 +120,22 @@ public:
     static inline const char* ratioNames[kNumRatios] { "1:1", "2:1", "3:1", "4:1", "6:1", "10:1", "20:1", "NUKE" };
     static inline const char* colourNames[3] { "CLEAN", "DIST 2", "DIST 3" };
 
-    // osRate: rate the distortion colour runs at (the strip oversamples it)
-    void prepare (double sampleRate, int numChannels, double osRate)
+    // osFactor: the strip's oversampling factor (gain, colour and Mix all run oversampled)
+    void prepare (double sampleRate, int numChannels, int osFactor, int maxBlock)
     {
         sr = sampleRate;
         nch = juce::jlimit (1, kMaxCh, numChannels);
-        for (auto& f : scHpf) { f.setHighPass (100.0, 0.70710678, sr); f.reset(); }
-        for (auto& f : dcBlock) { f.setOnePoleHighPass (5.0, osRate); f.reset(); }
-        grDb = 0.0f;
+        factor = juce::jmax (1, osFactor);
+        for (auto& f : scHpf) f.setHighPass (100.0, 0.70710678, sr);
+        for (auto& f : dcBlock) f.setOnePoleHighPass (5.0, sr * factor);
+        gComp.assign ((size_t) maxBlock + 1, 1.0f);
+        gOut.assign ((size_t) maxBlock + 1, 1.0f);
+        gMix.assign ((size_t) maxBlock + 1, 0.0f);
         smIn.reset (sr, 0.03); smOut.reset (sr, 0.03);
-        first = true;
+        smMix.reset (sr, 0.02);
+        smMix.setCurrentAndTargetValue (0.0f);
+        reset();
+        active = false;
     }
 
     void reset()
@@ -172,21 +144,35 @@ public:
         for (auto& f : dcBlock) f.reset();
         grDb = 0.0f;
         env = 0.0f;
+        lastComp = lastOut = 1.0f;
+        lastMix = smMix.getCurrentValue();
     }
 
-    // Step 1 (base rate): input gain + gain reduction. The distortion colour (step 2) runs
-    // oversampled in the strip, then step 3 applies the Output gain.
-    void processGain (juce::dsp::AudioBlock<float>& block, const CompSettings& s)
+    // Base rate: detector + gain computer. Fills this block's gain curves and returns true if
+    // the comp does anything this block (it fades in/out over 20 ms when switched).
+    bool analyse (const juce::dsp::AudioBlock<float>& block, const CompSettings& s)
     {
-        if (! s.on) { meterGr.store (0.0f); wasOn = false; return; }
-        if (! wasOn) { reset(); wasOn = true; first = true; }
+        smMix.setTargetValue (s.on ? juce::jlimit (0.0f, 1.0f, s.mix * 0.01f) : 0.0f);
+        if (! s.on && ! smMix.isSmoothing())
+        {
+            smMix.setCurrentAndTargetValue (0.0f);
+            meterGr.store (0.0f);
+            active = false;
+            return false;
+        }
+        if (! active)
+        {
+            // switching on: clean detector, gains straight to their settings, Mix fades in
+            active = true;
+            smIn.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (s.inputDb));
+            smOut.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (s.outputDb));
+            reset();
+        }
 
         const int n = (int) block.getNumSamples();
         const int ch = juce::jmin ((int) block.getNumChannels(), nch);
-
         smIn.setTargetValue (juce::Decibels::decibelsToGain (s.inputDb));
         smOut.setTargetValue (juce::Decibels::decibelsToGain (s.outputDb));
-        if (first) { smIn.setCurrentAndTargetValue (smIn.getTargetValue()); smOut.setCurrentAndTargetValue (smOut.getTargetValue()); first = false; }
 
         const int r = juce::jlimit (0, kNumRatios - 1, s.ratio);
         const float ratio = kRatio[r];
@@ -231,40 +217,42 @@ public:
             grDb = target < grDb ? aAtk * grDb + (1.0f - aAtk) * target
                                  : aRel * grDb + (1.0f - aRel) * target;
             minGain = juce::jmin (minGain, grDb);
-            const float g = juce::Decibels::decibelsToGain (grDb) * gIn;
-
-            for (int c = 0; c < ch; ++c)
-                block.setSample (c, i, block.getSample (c, i) * g);
+            gComp[(size_t) i] = juce::Decibels::decibelsToGain (grDb) * gIn;
+            gOut[(size_t) i] = smOut.getNextValue();
+            gMix[(size_t) i] = smMix.getNextValue();
         }
         meterGr.store (minGain);
+        return true;
     }
 
-    // Step 2 (oversampled): distortion colour
-    void processColour (juce::dsp::AudioBlock<float>& up, const CompSettings& s)
+    // Oversampled: gain -> colour -> output, blended with the untouched signal by Mix.
+    // Both sides of the blend come from the same oversampled signal, so the parallel
+    // blend is phase-exact (the gain curves are interpolated up to the oversampled rate).
+    void process (juce::dsp::AudioBlock<float>& up, const CompSettings& s)
     {
-        if (! s.on || s.colour == 0) return;
+        const int nu = (int) up.getNumSamples();
+        const int n = nu / factor;
         const int ch = juce::jmin ((int) up.getNumChannels(), nch);
+        const float inv = 1.0f / (float) factor;
         for (int c = 0; c < ch; ++c)
         {
             auto* x = up.getChannelPointer ((size_t) c);
-            for (size_t i = 0; i < up.getNumSamples(); ++i)
-                x[i] = colourise (x[i], s.colour, dcBlock[(size_t) c]);
+            auto& dc = dcBlock[(size_t) c];
+            float pc = lastComp, po = lastOut, pm = lastMix;
+            for (int i = 0; i < n; ++i)
+            {
+                const float dcmp = (gComp[(size_t) i] - pc) * inv, dout = (gOut[(size_t) i] - po) * inv, dmix = (gMix[(size_t) i] - pm) * inv;
+                for (int k = 0; k < factor; ++k)
+                {
+                    pc += dcmp; po += dout; pm += dmix;
+                    const float u = x[i * factor + k];
+                    const float y = colourise (u * pc, s.colour, dc) * po;
+                    x[i * factor + k] = u + pm * (y - u);
+                }
+                pc = gComp[(size_t) i]; po = gOut[(size_t) i]; pm = gMix[(size_t) i];
+            }
         }
-    }
-
-    // Step 3 (base rate): Output gain
-    void processOutput (juce::dsp::AudioBlock<float>& block, const CompSettings& s)
-    {
-        if (! s.on) return;
-        const int n = (int) block.getNumSamples();
-        const int ch = juce::jmin ((int) block.getNumChannels(), nch);
-        for (int c = 0; c < ch; ++c)
-        {
-            auto* x = block.getChannelPointer ((size_t) c);
-            auto g = smOut;
-            for (int i = 0; i < n; ++i) x[i] *= g.getNextValue();
-        }
-        smOut.skip (n);
+        if (n > 0) { lastComp = gComp[(size_t) n - 1]; lastOut = gOut[(size_t) n - 1]; lastMix = gMix[(size_t) n - 1]; }
     }
 
     float getGainReductionDb() const { return meterGr.load(); }
@@ -276,15 +264,15 @@ private:
     static constexpr float kKnee[kNumRatios]  { 0.0f, 12.0f, 10.0f, 8.0f, 6.0f, 4.0f, 2.0f, 0.0f };   // dB
 
     // Distortion colours. Bounded curves, so they behave at any level:
-    //  Dist 2: even-order bend (2nd harmonic), DC from the bend removed
+    //  Dist 2: even-order bend (2nd harmonic). Only the bend is DC-blocked, so the
+    //          fundamental passes with zero phase shift (keeps the parallel blend exact).
     //  Dist 3: symmetric soft saturation (3rd harmonic), like a tape/transformer edge
     static inline float colourise (float x, int mode, Biquad& dc) noexcept
     {
         if (mode == 1)
         {
             const float xx = x * x;
-            const float y = x + 0.35f * xx / (1.0f + xx);
-            return (float) dc.process ((double) y);
+            return x + (float) dc.process ((double) (0.35f * xx / (1.0f + xx)));
         }
         if (mode == 2)
             return x / std::sqrt (1.0f + 1.6f * x * x);   // unity small-signal gain
@@ -292,16 +280,19 @@ private:
     }
 
     double sr = 48000.0;
-    int nch = 2;
+    int nch = 2, factor = 4;
     std::array<Biquad, kMaxCh> scHpf, dcBlock;
+    std::vector<float> gComp, gOut, gMix;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smIn { 1.0f }, smOut { 1.0f };
-    float grDb = 0.0f, env = 0.0f;
-    bool first = true, wasOn = false;
+    juce::SmoothedValue<float> smMix;
+    float grDb = 0.0f, env = 0.0f, lastComp = 1.0f, lastOut = 1.0f, lastMix = 0.0f;
+    bool active = false;
     std::atomic<float> meterGr { 0.0f };
 };
 
 //==============================================================================
-// One path (Dry or Wet): EQ -> Comp -> fader, plus a post-fader peak meter.
+// One path (Dry or Wet): EQ (+ the other path's EQ all-passes) -> Comp (with Mix) -> fader,
+// plus a post-fader peak meter.
 class ChannelStrip
 {
 public:
@@ -315,24 +306,31 @@ public:
 
     void prepare (double sampleRate, int numChannels, int maxBlock)
     {
-        // The comp's distortion colour runs 4x oversampled. The oversampler runs on every block
+        // The comp runs 4x oversampled (2x at 88.2k and up). The oversampler runs on every block
         // (even with the comp off) so the strip's latency never changes and Dry/Wet stay aligned.
-        const size_t stages = sampleRate < 60000.0 ? 2 : 1;   // ~192 kHz for the colour stage
+        const size_t stages = sampleRate < 60000.0 ? 2 : 1;   // ~192 kHz for the comp
         os = std::make_unique<juce::dsp::Oversampling<float>> ((size_t) juce::jmax (1, numChannels), stages,
                  juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, GLOW_STRIP_OS_MAXQ, true);
         os->initProcessing ((size_t) maxBlock);
-        eq.prepare (sampleRate, numChannels);
-        comp.prepare (sampleRate, numChannels, sampleRate * (double) os->getOversamplingFactor());
+        eq.prepare (sampleRate, maxBlock);
+        comp.prepare (sampleRate, numChannels, (int) os->getOversamplingFactor(), maxBlock);
         smLevel.reset (sampleRate, 0.05);
         first = true;
         stale = true;
     }
 
-    void reset() { eq.reset(); comp.reset(); if (os) os->reset(); }
+    void reset() { eq.reset(); comp.reset(); if (os) os->reset(); eq.snap(); }
 
     int getLatencySamples() const { return os ? (int) std::round (os->getLatencyInSamples()) : 0; }
 
-    void process (juce::dsp::AudioBlock<float>& block, const Settings& s)
+    // Is this path audible (fader up, or still fading)? Its EQ only engages while it is.
+    bool isActive (const Settings& s) const { return s.levelDb > kOffDb || ! isMutedSteady(); }
+
+    // Step 1, once per block for BOTH strips before either is processed: the EQ plans.
+    void planEq (const Settings& s, bool allowed, int n) { eq.plan (s.eq, allowed, n); }
+
+    // Step 2: the audio. 'other' is the opposite path's strip (for its EQ all-passes).
+    void process (juce::dsp::AudioBlock<float>& block, const Settings& s, ChannelStrip& other)
     {
         const float target = s.levelDb <= kOffDb ? 0.0f : juce::Decibels::decibelsToGain (s.levelDb);
         smLevel.setTargetValue (target);
@@ -345,14 +343,18 @@ public:
             stale = true;
             return;
         }
-        if (stale) { reset(); stale = false; }   // coming back on: start from a clean state
+        if (stale)   // coming back on: start from a clean state
+        {
+            eq.resetMain(); other.eq.resetAllpass(); comp.reset(); if (os) os->reset();
+            stale = false;
+        }
 
-        eq.process (block, s.eq);
-        comp.processGain (block, s.comp);
+        eq.process (block);
+        other.eq.allpassOnOtherPath (block);   // phase-match the other path's EQ
+        const bool compOn = comp.analyse (block, s.comp);
         auto up = os->processSamplesUp (block);
-        comp.processColour (up, s.comp);
+        if (compOn) comp.process (up, s.comp);
         os->processSamplesDown (block);
-        comp.processOutput (block, s.comp);
 
         const int n = (int) block.getNumSamples();
         float peak = 0.0f;

@@ -43,6 +43,7 @@ void GlowProcessor::StripParams::bind (juce::AudioProcessorValueTreeState& s, co
     out = get ("CompOutput");
     colour = get ("CompColour");
     hpf = get ("CompHpf");
+    mix = get ("CompMix");
 }
 
 void GlowProcessor::StripParams::read (ChannelStrip::Settings& st) const
@@ -60,6 +61,7 @@ void GlowProcessor::StripParams::read (ChannelStrip::Settings& st) const
     st.comp.outputDb = out->load();
     st.comp.colour = (int) std::lround (colour->load());
     st.comp.detectorHpf = hpf->load() > 0.5f;
+    st.comp.mix = mix->load();
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout()
@@ -142,6 +144,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
         for (auto* c : Compressor::colourNames) colours.add (c);
         l.add (std::make_unique<AudioParameterChoice> (ParameterID { p + "CompColour", 1 }, P + "Comp Colour", colours, 0));
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompHpf", 1 }, P + "Comp Detector HPF", false));
+        // parallel compression: blend of uncompressed signal (same path, same phase)
+        addFloat (l, id ("CompMix").c_str(), (P + "Comp Mix").toRawUTF8(), { 0.0f, 100.0f, 0.1f }, 100.0f, pct);
     }
     return l;
 }

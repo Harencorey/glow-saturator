@@ -22,7 +22,7 @@ For Logic, you can validate the AU with `auval -v aufx Glw1 Hrna`.
 **Pre** (before the tubes)
 | Control | What it does |
 |---|---|
-| **High-Pass** | 12 dB/oct, 10 Hz–1 kHz, with Off at the bottom. Keeps lows out of the saturation. |
+| **High-Pass** | 24 dB/oct (Linkwitz-Riley), 10 Hz–1 kHz, −3 dB at the knob frequency, with Off at the bottom. Keeps lows out of the saturation. |
 | **Shelf Freq / Gain** | High shelf, 1–16 kHz, ±12 dB. Boost it to make the top end hit the tubes harder. |
 
 **Tubes**
@@ -44,13 +44,31 @@ For Logic, you can validate the AU with `auval -v aufx Glw1 Hrna`.
 | Control | What it does |
 |---|---|
 | **Dry / Wet faders** | −60 dB (Off) to +6 dB, each with a peak meter. The two are summed in parallel. The dry path is latency-aligned, so it never comb-filters. Defaults are Wet 0 dB and Dry Off. |
-| **EQ icon** | Opens that path's 4-band parametric EQ with a response curve. **Drag a point** to set frequency/gain (hold Shift for frequency only), **scroll** over a point for Q, and **double-click** a point to reset its gain. Dragging switches a bypassed EQ on. Each band has Freq (20 Hz–20 kHz), Gain (±18 dB) and Q (0.1–10); bands 1 and 4 switch between shelf and bell. Settings glide over ~30 ms, so moves never zipper. The icon lights up when the EQ is on. |
-| **COMP icon** | Opens that path's "Distressor-style" compressor. There's no threshold: **Input** drives into a fixed −18 dBFS threshold and **Output** sets the level after. Attack runs 0.05–30 ms, release 50 ms–3.5 s. Ratios are 1:1, 2, 3, 4, 6, 10, 20 and **NUKE** (brickwall), with the knee hardening as the ratio rises. **Distortion** offers Clean / Dist 2 (2nd harmonic) / Dist 3 (3rd harmonic), and at 1:1 the comp is just a colour box. **Detector HPF** keeps lows from pumping it. Includes a gain-reduction meter. |
+| **EQ icon** | Opens that path's 4-band parametric EQ with a response curve. **Drag a point** to set frequency/gain (hold Shift for frequency only), **scroll** over a point for Q, and **double-click** a point to reset its gain. Dragging switches a bypassed EQ on. Each band has Freq (20 Hz–20 kHz), Gain (±18 dB) and Q (0.1–10); bands 1 and 4 switch between shelf and bell. Settings glide over ~30 ms, so moves never zipper. Bands fade in and out (~60 ms) instead of switching. The icon lights up when the EQ is on. |
+| **COMP icon** | Opens that path's "Distressor-style" compressor. There's no threshold: **Input** drives into a fixed −18 dBFS threshold and **Output** sets the level after. Attack runs 0.05–30 ms, release 50 ms–3.5 s. Ratios are 1:1, 2, 3, 4, 6, 10, 20 and **NUKE** (brickwall), with the knee hardening as the ratio rises. **Distortion** offers Clean / Dist 2 (2nd harmonic) / Dist 3 (3rd harmonic), and at 1:1 the comp is just a colour box. **Detector HPF** keeps lows from pumping it. **Mix** blends the uncompressed signal back in (parallel compression inside the path; it's phase-exact because both sides of the blend share the same EQ and oversampling). Switching the comp on/off fades over 20 ms. Includes a gain-reduction meter. |
 
-Signal order in each path: EQ → Comp → fader.
+Signal order in each path: EQ → Comp (with Mix) → fader.
 
 At the default settings (Even, Odd and Density at 50 %, HPF off, shelves at 0 dB, Wet 0 dB / Dry Off,
 EQ and Comp off) the output is bit-identical to v0.1.5, the BB Tubes-matched version.
+
+## Dry/Wet phase lock
+
+Whatever either path is doing, Dry and Wet arrive at the sum in phase. Every user filter (HPF, both shelves,
+both strips' EQ bands) is built as a pair: a normal bell/shelf/high-pass at half the gain, then the same filter
+with its numerator reversed. The pair gives the full gain with a phase response that is **exactly** an all-pass,
+and the other path runs that all-pass (flat magnitude). It's the same trick that keeps a Linkwitz-Riley
+crossover's two halves in phase. Both paths read one shared per-32-sample plan, so they stay locked while knobs move
+and while bands fade in or out.
+
+Measured (`measure/test_coherence.py`, `measure/test_switching.py`): wet-vs-dry phase stays within about 4° (the old
+fixed tube-voicing filter fit, unchanged) with HPF, shelves, both EQs, both comps and Mix all in use, at
+44.1/48/96 kHz. A 50/50 parallel sum loses under 0.01 dB. v0.1.8 lost up to 12 dB with the HPF up. During
+switching or automation the worst momentary loss is 0.1 dB.
+
+Trade-off: like any phase-coherent parallel design, the all-passes rotate the *overall* output's phase around
+the frequencies you EQ (the dry path follows the wet path's filters instead of staying untouched). Relative to
+other tracks that's the same kind of shift any minimum-phase EQ makes. A flat band (0 dB) is fully switched out, so it adds nothing.
 
 ## Signal flow
 
@@ -58,18 +76,18 @@ EQ and Comp off) the output is bit-identical to v0.1.5, the BB Tubes-matched ver
 in ─┬─ HPF → pre shelf → input coupling HPFs (~24 Hz res.) → low bump (+2.8 dB @ 44 Hz) → presence dip
     │   → [4x oversampled]  input tube stage → coupling cap (~10 Hz) → Drive (+Odd) → output tube stage
     │                       (each stage's even part scaled by Even)
-    │   → DC blocker → auto-gain → post shelf → WET strip (EQ → Comp → fader) ─┐
-    └─ dry (latency-matched) ─────────────────→ DRY strip (EQ → Comp → fader) ─┴─ sum → Output
+    │   → DC blocker → auto-gain → post shelf → WET strip (EQ + dry-EQ all-passes → Comp/Mix → fader) ─┐
+    └─ dry (latency-matched, + all-passes of the wet filters) → DRY strip (EQ + wet-EQ all-passes → Comp/Mix → fader) ─┴─ sum → Output
 ```
 
 ### Quality and timing
 - **Oversampling:** the tube stages run at ~384 kHz whatever the session rate (8× at 44.1/48k,
-  4× at 88.2/96k, 2× at 176.4/192k), using linear-phase FIR filters. The comp's distortion colour runs 4× (2× at 88.2k and up).
+  4× at 88.2/96k, 2× at 176.4/192k), using linear-phase FIR filters. The comps (gain, distortion colour and Mix) run 4× (2× at 88.2k and up).
 - **Latency:** 103 samples at 44.1/48 kHz, reported to the host and compensated. **Bypass keeps the same latency**,
   so toggling bypass never shifts the track in time.
 - **Dry/Wet phase:** the dry path runs through an identical copy of the oversampling filters, plus an all-pass
-  (flat magnitude) fitted to the wet path's low-end filters. The two sum coherently: under 7° of difference from 20 Hz–20 kHz,
-  and the dry path is flat within ±0.04 dB.
+  (flat magnitude) fitted to the wet path's low-end filters, plus the all-passes of every user filter (see *Dry/Wet phase lock*).
+  The two sum coherently: under 7° of difference from 20 Hz–20 kHz, and the dry path is flat within ±0.04 dB.
 - **Stereo:** identical L/R in gives bit-identical L/R out, with no crosstalk. The compressors and the Odd auto-gain are stereo-linked.
 - **CPU** (one core of a 2.8 GHz cloud Xeon, 48 kHz stereo): ~7 % at default, ~12 % with Even/Odd in use,
   ~16 % with both strips' EQ + comps on. Expect roughly half that on Apple Silicon.
@@ -89,6 +107,8 @@ in ─┬─ HPF → pre shelf → input coupling HPFs (~24 Hz res.) → low bum
 - `Source/GlowDSP.h`: the entire signal path (shared by the plug-in and the render tool).
 - `Source/DriveMap.h`: fitted constants, **generated** by `model/gen_drivemap.py`; don't hand-edit.
 - `Source/Biquad.h`: double-precision RBJ filters.
+- `Source/PhaseCoherent.h`: the phase-locked filters (user EQ/HPF/shelves) and their all-pass twins.
+- `Source/ChannelStrip.h`: Dry/Wet strip: EQ, compressor (with Mix), fader.
 - `Source/PluginProcessor.*`, `Source/PluginEditor.*`: JUCE wrapper and UI.
 - `tools/RenderTool.cpp`: offline renderer (`-DGLOW_BUILD_TOOLS=ON`), used for the A/B tests.
 - `../measure/`: test-signal generator, analysis, BB comparison, and the aliasing/stress test.

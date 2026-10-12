@@ -411,6 +411,7 @@ public:
         attack.setup (*this, s, prefix + "CompAttack", "ATTACK", 5.0);
         release.setup (*this, s, prefix + "CompRelease", "RELEASE", 200.0);
         output.setup (*this, s, prefix + "CompOutput", "OUTPUT", 0.0);
+        mix.setup (*this, s, prefix + "CompMix", "MIX", 100.0);   // parallel blend (phase-exact)
         addAndMakeVisible (ratio);
         addAndMakeVisible (colour);
         hpf.setup (*this, s, prefix + "CompHpf", "DETECTOR HPF");
@@ -430,12 +431,16 @@ public:
 protected:
     void layoutContent (juce::Rectangle<int> r) override
     {
-        auto knobs = r.removeFromLeft (r.getWidth() / 2);
+        // INPUT / OUTPUT over ATTACK / RELEASE, with MIX on its own at the end of the row
+        auto knobs = r.removeFromLeft (r.getWidth() * 3 / 5);
+        const int colW = knobs.getWidth() / 3;
+        auto mixCol = knobs.removeFromRight (colW);
         auto top = knobs.removeFromTop (knobs.getHeight() / 2).withTrimmedBottom (8);
         input.place (top.removeFromLeft (top.getWidth() / 2).reduced (6, 0));
         output.place (top.reduced (6, 0));
         attack.place (knobs.removeFromLeft (knobs.getWidth() / 2).reduced (6, 0));
         release.place (knobs.reduced (6, 0));
+        mix.place (mixCol.withSizeKeepingCentre (mixCol.getWidth(), top.getHeight()).reduced (6, 0));
 
         r.removeFromLeft (16);
         gr.setBounds (r.removeFromTop (26));
@@ -450,7 +455,7 @@ protected:
     }
 
 private:
-    Knob input, attack, release, output;
+    Knob input, attack, release, output, mix;
     ChoiceButtons ratio, colour;
     ToggleParam hpf;
     juce::Label ratioLabel, colourLabel;
