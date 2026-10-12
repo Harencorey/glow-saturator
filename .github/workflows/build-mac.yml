@@ -3,6 +3,7 @@ name: Build macOS installer (AU + VST3)
 on:
   push:
     branches: [main]
+    paths-ignore: ['.github/workflows/backfill-releases.yml']   # the backfill job doesn't need a new build
   workflow_dispatch:
 
 permissions:

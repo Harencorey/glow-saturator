@@ -4,6 +4,9 @@ name: Backfill version releases
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/backfill-releases.yml']   # runs once when this file changes
 
 permissions:
   contents: write
