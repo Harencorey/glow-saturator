@@ -38,7 +38,7 @@ A **\*** after the name means you've changed something since loading it.
 **Tubes**
 | Control | What it does |
 |---|---|
-| **Drive** | Macro control: more of both even and odd harmonics. Partly auto-gained, like BB Tubes. |
+| **Drive** | Macro control: more of both even and odd harmonics. Partly auto-gained, like BB Tubes. The glow around the knob is a meter: it brightens with how hard the tubes are actually working on the incoming audio (quiet input at low Drive barely lights it, hot input or high Drive makes it bloom) and settles to a faint glow showing the knob setting when nothing's playing. |
 | **Even** | Scales only the even-symmetric part of each tube stage's curve, so it moves 2nd/4th/6th harmonics without touching the odd ones. 0 % = no even harmonics, 50 % = as measured, 100 % = 3×. |
 | **Odd** | How hard the output stage clips: ±12 dB around where Drive puts it. Symmetric clipping makes the 3rd/5th/7th harmonics. Adaptive auto-gain keeps the loudness steady (within ±0.25 dB on test material). |
 | **Density** | How hard the input tube stage is hit. 50 % = matched; higher gives more lopsided bloom and "breathing" after loud hits. |

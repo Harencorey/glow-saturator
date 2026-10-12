@@ -274,8 +274,19 @@ void GlowEditor::timerCallback()
     }
     if (relayout) resized();
 
-    const float d = (float) drive.slider.getValue();
-    if (std::abs (d - lastGlow) > 0.01f) { lastGlow = d; repaint (glowArea); }
+    // Drive glow follows how hard the tubes are actually working (distortion vs the clean
+    // signal, about -54 dB = clean to 0 dB = crushed), with meter-like ballistics:
+    // jumps up on peaks, falls back over ~0.3 s. With no audio it rests at a faint glow
+    // that just shows the knob setting.
+    {
+        const float ratio = proc.takeDrivenness();
+        const float db = ratio > 0.0f ? 10.0f * std::log10 (ratio) : -100.0f;
+        const float x = jlimit (0.0f, 1.0f, (db + 54.0f) / 52.0f);
+        const float target = x * x;
+        glowLevel = target > glowLevel ? glowLevel + 0.6f * (target - glowLevel) : glowLevel * 0.88f;
+        const float shown = 0.12f * (float) drive.slider.getValue() / 100.0f + 0.88f * glowLevel;
+        if (std::abs (shown - lastGlow) > 0.004f) { lastGlow = shown; repaint (glowArea); }
+    }
 }
 
 void GlowEditor::paint (Graphics& g)
@@ -319,10 +330,10 @@ void GlowEditor::paint (Graphics& g)
         }
     }
 
-    const float d = (float) drive.slider.getValue() / 100.0f;
+    const float d = jlimit (0.0f, 1.0f, lastGlow);   // set by the timer: knob + how driven the signal is
     auto gc = glowArea.toFloat().getCentre();
-    const float gr = (float) glowArea.getWidth() * 0.5f;
-    ColourGradient grad (GlowLookAndFeel::amber.withAlpha (0.15f + 0.6f * d), gc.x, gc.y,
+    const float gr = (float) glowArea.getWidth() * 0.5f * (0.9f + 0.12f * d);   // blooms a little when hot
+    ColourGradient grad (GlowLookAndFeel::amber.withAlpha (0.06f + 0.74f * d), gc.x, gc.y,
                          GlowLookAndFeel::amber.withAlpha (0.0f), gc.x + gr, gc.y, true);
     g.setGradientFill (grad);
     g.fillEllipse (glowArea.toFloat());

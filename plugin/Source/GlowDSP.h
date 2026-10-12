@@ -293,6 +293,7 @@ public:
         const float gStep = (g1 - g0) / (float) nu;
         if (knee2.needs (shape.sharp)) knee2.build (shape.sharp);   // only while Drive moves
         double powOdd = 0.0, powRef = 0.0;   // block energy: actual vs nominal-Odd output stage
+        float sumDist = 0.0f, sumOut = 0.0f; // for the glow meter: distortion vs clean-signal energy
         for (int c = 0; c < nch; ++c)
         {
             auto* u = up.getChannelPointer ((size_t) c);
@@ -315,10 +316,22 @@ public:
                     powOdd += (double) y * y;
                     powRef += (double) yRef * yRef;
                 }
+                // how hard the tubes are working: what both stages add on top of a clean
+                // (linear) path, in this oversampled sample. Feeds the Drive glow.
+                const float dist = (y - v * g) + g * (w - u[i] * k1) * k1inv;
+                sumDist += dist * dist;
+                const float lin = v * g;   // what a clean (unsaturated) path would put out
+                sumOut += lin * lin;
                 u[i] = y;
             }
         }
         oversampler->processSamplesDown (block);
+        if (sumOut > 1.0e-9f)
+        {
+            const float ratio = juce::jmin (1.0f, sumDist / sumOut);   // 0 = clean ... 1 = completely crushed
+            float prev = drivenMeter.load();
+            while (ratio > prev && ! drivenMeter.compare_exchange_weak (prev, ratio)) {}
+        }
 
         if (oddActive)
         {
@@ -382,6 +395,9 @@ public:
         smOut.skip (n);
         autoMeter.store (params.autoGain ? autoApplied : 0.0f);
     }
+
+    // UI: highest distortion-to-signal power ratio since the last call (then cleared)
+    float takeDrivenness() { return drivenMeter.exchange (0.0f); }
 
     // UI: the auto gain currently applied, in dB (0 when off)
     float getAutoGainDb() const { return autoMeter.load(); }
@@ -508,6 +524,7 @@ private:
     float inShort = 0.0f, outShort = 0.0f, inBlock = 0.0f, inLong = 0.0f, outLong = 0.0f;
     float autoGainDb = 0.0f, autoApplied = 0.0f;
     std::atomic<float> autoMeter { 0.0f };
+    std::atomic<float> drivenMeter { 0.0f };
 public:
     int testSolo = 0;         // offline measurement only: 1 = output wet path only, 2 = dry only
 };

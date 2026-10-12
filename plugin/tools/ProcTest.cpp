@@ -114,6 +114,36 @@ int main()
         check (r.apvts.getParameter ("hpf")->getText (r.apvts.getParameter ("hpf")->getValue(), 10) == "Off", "old session with HPF at 10 Hz loads as Off");
     }
 
+    // ---- Drive glow meter ----
+    {
+        std::printf ("drive glow meter (distortion re. clean signal, dB):\n");
+        auto measure = [] (float drive, float levelDb)
+        {
+            GlowProcessor p;
+            p.setPlayConfigDetails (2, 2, 48000.0, 512);
+            p.prepareToPlay (48000.0, 512);
+            auto* rp = p.apvts.getParameter ("drive"); rp->setValueNotifyingHost (rp->convertTo0to1 (drive));
+            juce::Random rnd (7);
+            juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m;
+            float mx = 0.0f;
+            for (int k = 0; k < 200; ++k)
+            {
+                const float a = juce::Decibels::decibelsToGain (levelDb) * 1.7f;
+                for (int i = 0; i < 512; ++i) { const float v = a * (rnd.nextFloat() * 2.0f - 1.0f); b.setSample (0, i, v); b.setSample (1, i, v); }
+                if (levelDb < -200.0f) b.clear();
+                p.processBlock (b, m);
+                if (k > 20) mx = juce::jmax (mx, p.takeDrivenness());
+            }
+            return mx > 0.0f ? 10.0f * std::log10 (mx) : -999.0f;
+        };
+        const float quiet = measure (10.0f, -30.0f), mid = measure (25.0f, -18.0f), hot = measure (90.0f, -12.0f), silent = measure (90.0f, -999.0f);
+        std::printf ("  drive 10 @ -30 dBFS: %.1f   drive 25 @ -18: %.1f   drive 90 @ -12: %.1f   silence: %s\n",
+                     quiet, mid, hot, silent < -900.0f ? "none" : "SIGNAL?!");
+        const bool good = quiet < mid && mid < hot && hot > -6.0f && quiet < -30.0f && silent < -900.0f;
+        std::printf ("  ordering and range %s\n", good ? "OK" : "FAIL");
+        ok &= good;
+    }
+
     std::printf (ok ? "ALL OK\n" : "FAILURES\n");
     return ok ? 0 : 1;
 }

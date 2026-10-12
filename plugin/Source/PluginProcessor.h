@@ -46,6 +46,7 @@ public:
     float dryGainReductionDb() const { return dsp.dryGainReductionDb(); }
     float wetGainReductionDb() const { return dsp.wetGainReductionDb(); }
     float autoGainDb() const { return dsp.getAutoGainDb(); }
+    float takeDrivenness() { return dsp.takeDrivenness(); }
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
 
 private:

@@ -56,6 +56,7 @@ private:
 
     juce::Rectangle<int> preArea, tubeArea, postArea, mixArea, overlayArea, glowArea;
     float lastGlow = -1.0f;
+    float glowLevel = 0.0f;   // 0..1, how hard the tubes are working right now (meter ballistics)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GlowEditor)
 };

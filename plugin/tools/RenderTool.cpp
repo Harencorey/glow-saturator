@@ -104,6 +104,7 @@ int main (int argc, char** argv)
 
     const double t0 = juce::Time::getMillisecondCounterHiRes();
     size_t nextPoint = 1;
+    double drivenSum = 0.0; float drivenMax = 0.0f; int drivenN = 0;
     for (int start = 0; start < buf.getNumSamples(); start += block)
     {
         while (nextPoint < points.size() && start >= (int) (points[nextPoint].first * reader->sampleRate))
@@ -116,7 +117,11 @@ int main (int argc, char** argv)
         juce::dsp::AudioBlock<float> b (buf);
         auto sub = b.getSubBlock ((size_t) start, (size_t) n);
         dsp.process (sub);
+        if (const float d = dsp.takeDrivenness(); d > 0.0f) { drivenSum += d; drivenMax = juce::jmax (drivenMax, d); ++drivenN; }
     }
+    if (drivenN > 0)
+        std::printf ("driven: mean %.1f dB, max %.1f dB (distortion re. signal)\n",
+                     10.0 * std::log10 (drivenSum / drivenN + 1e-30), 10.0 * std::log10 (drivenMax + 1e-30));
 
     const double ms = juce::Time::getMillisecondCounterHiRes() - t0;
     const double audioMs = 1000.0 * buf.getNumSamples() / reader->sampleRate;
