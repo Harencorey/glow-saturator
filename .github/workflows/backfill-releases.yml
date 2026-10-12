@@ -23,6 +23,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Everything goes to a log; on failure its tail is posted as an error annotation
+          # (readable through the API even where raw logs aren't).
+          backfill() {
+          set -ex
           # run id : build number : label
           while IFS=: read -r RUN N LABEL; do
             [ -z "$RUN" ] && continue
@@ -53,3 +57,10 @@ jobs:
           38258727613:10:First Norka DSP build (Norka DSP > Glow).
           38270907139:11:Norka DSP > Glow.
           LIST
+          }
+          if ! backfill > log.txt 2>&1; then
+            msg=$(tail -n 40 log.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Backfill failed::${msg}"
+            exit 1
+          fi
+          cat log.txt
