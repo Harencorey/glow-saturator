@@ -50,16 +50,25 @@ sigs = {
 for name, x in sigs.items():
     for args in (dict(drive=0, even=0, odd=0, density=0),
                  dict(drive=100, even=100, odd=100, density=100, preDb=12, preHz=1000, postDb=12, postHz=1000, out=12),
-                 dict(drive=100, even=0, odd=100, density=100, hpf=1000, preDb=-12, postDb=-12, mix=0, out=-24),
-                 dict(drive=50, even=100, odd=0, density=50, hpf=200, preDb=6, postDb=-6, mix=50),
-                 dict(drive=100, even=100, odd=100, density=100, preHz=16000, preDb=12, postHz=16000, postDb=12)):
+                 dict(drive=100, even=0, odd=100, density=100, hpf=1000, preDb=-12, postDb=-12, wetLevel=-60, dryLevel=0, out=-24),
+                 dict(drive=50, even=100, odd=0, density=50, hpf=200, preDb=6, postDb=-6, dryLevel=-6, wetLevel=-6),
+                 dict(drive=100, even=100, odd=100, density=100, preHz=16000, preDb=12, postHz=16000, postDb=12),
+                 # channel strips: everything on, extreme settings, both paths
+                 dict(drive=80, dryLevel=6, wetLevel=6, dryEq=1, wetEq=1, dryG1=18, dryF1=20, dryG4=18, dryF4=20000,
+                      wetG2=-18, wetQ2=10, wetG3=18, wetQ3=0.1, dryComp=1, wetComp=1, dryIn=36, wetIn=36,
+                      dryRatio=7, wetRatio=7, dryAtk=0.05, dryRel=50, wetColour=1, dryColour=2, dryOut=24, wetOut=24),
+                 dict(drive=50, dryLevel=0, wetLevel=-60, dryEq=1, dryComp=1, dryIn=-12, dryRatio=3, dryHpf=1, dryAtk=30, dryRel=3500)):
         for block in (1, 37, 512, 4096):
             y = render(x, sr, args, block)
             bad = not np.all(np.isfinite(y))
             peak = np.max(np.abs(y))
-            if bad or peak > 8:
+            if bad or peak > 64:
                 ok = False
                 print(f"FAIL {name} args {args} block {block}: finite={not bad} peak {peak:.2f}")
+    # absurd gain staging (1:1 comp, everything maxed): just has to stay finite
+    y = render(x, sr, dict(wetComp=1, wetRatio=0, wetIn=36, wetOut=24, wetLevel=6, wetEq=1, wetG2=18, dryLevel=6), 512)
+    if not np.all(np.isfinite(y)):
+        ok = False; print(f"FAIL {name}: non-finite output with max gain staging")
     print(f"extremes {name}: done")
 
 # 3. silence in -> silence out (no noise floor / DC creep)
@@ -68,9 +77,9 @@ print(f"silence out peak at full settings: {20 * np.log10(np.max(np.abs(y)) + 1e
 
 # 4. mix = 0 must be a clean, latency-compensated pass-through
 x = np.random.default_rng(2).standard_normal(sr) * 0.1
-y = render(x, sr, dict(drive=100, odd=100, even=100, hpf=300, preDb=9, mix=0))
+y = render(x, sr, dict(drive=100, odd=100, even=100, hpf=300, preDb=9, wetLevel=-60, dryLevel=0))
 err = 20 * np.log10(np.max(np.abs(y - x)) + 1e-30)
-print(f"mix 0% null vs input: {err:.1f} dB  {'OK' if err < -90 else 'FAIL'}")
+print(f"dry-only (wet off) null vs input: {err:.1f} dB  {'OK' if err < -90 else 'FAIL'}")
 ok &= err < -90
 
 # 5. block-size independence (same output whatever the host buffer)

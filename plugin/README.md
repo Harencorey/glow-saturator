@@ -38,11 +38,19 @@ For Logic, you can validate the AU with `auval -v aufx Glw1 Hrna`.
 |---|---|
 | **Shelf Freq / Gain** | High shelf, 1–16 kHz, ±12 dB. |
 | **Link** | The post shelf mirrors the pre shelf (same frequency, opposite gain), so the top end saturates harder or softer while the overall tonal balance stays put. This replaces the old Tone knob. |
-| **Mix** | Parallel blend. The dry path is latency-compensated, so 0 % is a perfect null. |
-| **Output** | −24 to +12 dB trim. |
+| **Output** | −24 to +12 dB trim (after Dry + Wet are summed). |
 
-At the default settings (Even, Odd and Density at 50 %, HPF off, shelves at 0 dB) the output is
-bit-identical to v0.1.5, the BB Tubes-matched version.
+**Mix** (Dry and Wet channel strips)
+| Control | What it does |
+|---|---|
+| **Dry / Wet faders** | −60 dB (Off) to +6 dB, each with a peak meter. The two are summed in parallel. The dry path is latency-aligned, so it never comb-filters. Defaults are Wet 0 dB and Dry Off. |
+| **EQ icon** | Opens that path's 4-band parametric EQ with a response curve. Each band has Freq (20 Hz–20 kHz), Gain (±18 dB) and Q (0.1–10); bands 1 and 4 switch between shelf and bell. The icon lights up when the EQ is on. |
+| **COMP icon** | Opens that path's "Distressor-style" compressor. There's no threshold: **Input** drives into a fixed −18 dBFS threshold and **Output** sets the level after. Attack runs 0.05–30 ms, release 50 ms–3.5 s. Ratios are 1:1, 2, 3, 4, 6, 10, 20 and **NUKE** (brickwall), with the knee hardening as the ratio rises. **Distortion** offers Clean / Dist 2 (2nd harmonic) / Dist 3 (3rd harmonic), and at 1:1 the comp is just a colour box. **Detector HPF** keeps lows from pumping it. Includes a gain-reduction meter. |
+
+Signal order in each path: EQ → Comp → fader.
+
+At the default settings (Even, Odd and Density at 50 %, HPF off, shelves at 0 dB, Wet 0 dB / Dry Off,
+EQ and Comp off) the output is bit-identical to v0.1.5, the BB Tubes-matched version.
 
 ## Signal flow
 
@@ -50,8 +58,8 @@ bit-identical to v0.1.5, the BB Tubes-matched version.
 in ─┬─ HPF → pre shelf → input coupling HPFs (~24 Hz res.) → low bump (+2.8 dB @ 44 Hz) → presence dip
     │   → [4x oversampled]  input tube stage → coupling cap (~10 Hz) → Drive (+Odd) → output tube stage
     │                       (each stage's even part scaled by Even)
-    │   → DC blocker → auto-gain → post shelf ─┐
-    └──────────────── dry (latency-matched) ─────────┴─ Mix → Output
+    │   → DC blocker → auto-gain → post shelf → WET strip (EQ → Comp → fader) ─┐
+    └─ dry (latency-matched) ─────────────────→ DRY strip (EQ → Comp → fader) ─┴─ sum → Output
 ```
 
 Latency: 61 samples at 48 kHz (linear-phase oversampling, reported to the host).

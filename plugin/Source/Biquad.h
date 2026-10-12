@@ -43,6 +43,15 @@ struct Biquad
         set (1 + al * A, -2 * c, 1 - al * A, 1 + al / A, -2 * c, 1 - al / A);
     }
 
+    void setLowShelf (double fc, double gainDb, double q, double sr) noexcept
+    {
+        const double A = std::pow (10.0, gainDb / 40.0);
+        const double w = 2.0 * M_PI * fc / sr, al = std::sin (w) / (2.0 * q), c = std::cos (w);
+        const double sA = 2.0 * std::sqrt (A) * al;
+        set (A * ((A + 1) - (A - 1) * c + sA), 2 * A * ((A - 1) - (A + 1) * c), A * ((A + 1) - (A - 1) * c - sA),
+             (A + 1) + (A - 1) * c + sA, -2 * ((A - 1) + (A + 1) * c), (A + 1) + (A - 1) * c - sA);
+    }
+
     void setHighShelf (double fc, double gainDb, double q, double sr) noexcept
     {
         const double A = std::pow (10.0, gainDb / 40.0);

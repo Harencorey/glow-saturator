@@ -17,8 +17,49 @@ GlowProcessor::GlowProcessor()
     pPostHz = apvts.getRawParameterValue ("postShelfFreq");
     pPostDb = apvts.getRawParameterValue ("postShelfGain");
     pLink = apvts.getRawParameterValue ("shelfLink");
-    pMix = apvts.getRawParameterValue ("mix");
     pOutput = apvts.getRawParameterValue ("output");
+    dryParams.bind (apvts, "dry");
+    wetParams.bind (apvts, "wet");
+}
+
+void GlowProcessor::StripParams::bind (juce::AudioProcessorValueTreeState& s, const juce::String& p)
+{
+    auto get = [&s, &p] (const juce::String& id) { auto* v = s.getRawParameterValue (p + id); jassert (v != nullptr); return v; };
+    level = get ("Level");
+    eqOn = get ("EqOn");
+    for (int b = 0; b < 4; ++b)
+    {
+        f[b] = get ("EqFreq" + juce::String (b + 1));
+        g[b] = get ("EqGain" + juce::String (b + 1));
+        q[b] = get ("EqQ" + juce::String (b + 1));
+    }
+    lowShelf = get ("EqLowShelf");
+    highShelf = get ("EqHighShelf");
+    compOn = get ("CompOn");
+    in = get ("CompInput");
+    atk = get ("CompAttack");
+    rel = get ("CompRelease");
+    ratio = get ("CompRatio");
+    out = get ("CompOutput");
+    colour = get ("CompColour");
+    hpf = get ("CompHpf");
+}
+
+void GlowProcessor::StripParams::read (ChannelStrip::Settings& st) const
+{
+    st.levelDb = level->load();
+    st.eq.on = eqOn->load() > 0.5f;
+    for (int b = 0; b < 4; ++b) { st.eq.freq[b] = f[b]->load(); st.eq.gain[b] = g[b]->load(); st.eq.q[b] = q[b]->load(); }
+    st.eq.lowShelf = lowShelf->load() > 0.5f;
+    st.eq.highShelf = highShelf->load() > 0.5f;
+    st.comp.on = compOn->load() > 0.5f;
+    st.comp.inputDb = in->load();
+    st.comp.attackMs = atk->load();
+    st.comp.releaseMs = rel->load();
+    st.comp.ratio = (int) std::lround (ratio->load());
+    st.comp.outputDb = out->load();
+    st.comp.colour = (int) std::lround (colour->load());
+    st.comp.detectorHpf = hpf->load() > 0.5f;
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout()
@@ -36,7 +77,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
         return r;
     };
 
-    auto addFloat = [] (AudioProcessorValueTreeState::ParameterLayout& l, const char* id, const char* name,
+    auto addFloat = [] (AudioProcessorValueTreeState::ParameterLayout& l, const std::string& id, const String& name,
                         NormalisableRange<float> range, float def, std::function<String (float, int)> text)
     {
         l.add (std::make_unique<AudioParameterFloat> (ParameterID { id, 1 }, name, range, def,
@@ -58,8 +99,50 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
     addFloat (l, "postShelfGain", "Post Shelf Gain", { -12.0f, 12.0f, 0.01f }, 0.0f, db);
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "shelfLink", 1 }, "Shelf Link", false));
     // output
-    addFloat (l, "mix", "Mix", { 0.0f, 100.0f, 0.1f }, 100.0f, pct);
     addFloat (l, "output", "Output", { -24.0f, 12.0f, 0.01f }, 0.0f, db);
+
+    // Dry and Wet channel strips: fader, 4-band EQ, compressor
+    auto levelText = [db] (float v, int len) { return v <= ChannelStrip::kOffDb + 0.05f ? String ("Off") : db (v, len); };
+    auto ms = [] (float v, int) { return v < 1.0f ? String (v, 2) + " ms" : v < 1000.0f ? String (v, v < 10.0f ? 1 : 0) + " ms" : String (v / 1000.0f, 2) + " s"; };
+    auto qText = [] (float v, int) { return String (v, 2); };
+    for (const String p : { "dry", "wet" })
+    {
+        const String P = p == "dry" ? "Dry " : "Wet ";
+        auto id = [&p] (const String& s) { return (p + s).toStdString(); };
+
+        NormalisableRange<float> lvl (ChannelStrip::kOffDb, 6.0f, 0.01f);
+        lvl.setSkewForCentre (-12.0f);
+        addFloat (l, id ("Level").c_str(), (P + "Level").toRawUTF8(), lvl, p == "dry" ? ChannelStrip::kOffDb : 0.0f, levelText);
+
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "EqOn", 1 }, P + "EQ On", false));
+        const float defF[4] { 80.0f, 400.0f, 2500.0f, 10000.0f }, defQ[4] { 0.7f, 1.0f, 1.0f, 0.7f };
+        for (int b = 0; b < 4; ++b)
+        {
+            const String n (b + 1);
+            addFloat (l, id ("EqFreq" + n).c_str(), (P + "EQ " + n + " Freq").toRawUTF8(), freqRange (20.0f, 20000.0f, 1000.0f), defF[b], hz);
+            addFloat (l, id ("EqGain" + n).c_str(), (P + "EQ " + n + " Gain").toRawUTF8(), { -18.0f, 18.0f, 0.01f }, 0.0f, db);
+            NormalisableRange<float> qr (0.1f, 10.0f, 0.001f);
+            qr.setSkewForCentre (1.0f);
+            addFloat (l, id ("EqQ" + n).c_str(), (P + "EQ " + n + " Q").toRawUTF8(), qr, defQ[b], qText);
+        }
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "EqLowShelf", 1 }, P + "EQ 1 Shelf", true));
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "EqHighShelf", 1 }, P + "EQ 4 Shelf", true));
+
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompOn", 1 }, P + "Comp On", false));
+        addFloat (l, id ("CompInput").c_str(), (P + "Comp Input").toRawUTF8(), { -12.0f, 36.0f, 0.01f }, 0.0f, db);
+        NormalisableRange<float> atk (0.05f, 30.0f, 0.01f);  atk.setSkewForCentre (2.0f);
+        NormalisableRange<float> rel (50.0f, 3500.0f, 1.0f); rel.setSkewForCentre (300.0f);
+        addFloat (l, id ("CompAttack").c_str(), (P + "Comp Attack").toRawUTF8(), atk, 5.0f, ms);
+        addFloat (l, id ("CompRelease").c_str(), (P + "Comp Release").toRawUTF8(), rel, 200.0f, ms);
+        StringArray ratios;
+        for (auto* r : Compressor::ratioNames) ratios.add (r);
+        l.add (std::make_unique<AudioParameterChoice> (ParameterID { p + "CompRatio", 1 }, P + "Comp Ratio", ratios, 3));
+        addFloat (l, id ("CompOutput").c_str(), (P + "Comp Output").toRawUTF8(), { -24.0f, 24.0f, 0.01f }, 0.0f, db);
+        StringArray colours;
+        for (auto* c : Compressor::colourNames) colours.add (c);
+        l.add (std::make_unique<AudioParameterChoice> (ParameterID { p + "CompColour", 1 }, P + "Comp Colour", colours, 0));
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompHpf", 1 }, P + "Comp Detector HPF", false));
+    }
     return l;
 }
 
@@ -97,8 +180,9 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     const bool link = pLink->load() > 0.5f;
     p.postShelfHz = link ? p.preShelfHz : pPostHz->load();
     p.postShelfDb = link ? -p.preShelfDb : pPostDb->load();
-    p.mix = pMix->load();
     p.outputDb = pOutput->load();
+    dryParams.read (p.dry);
+    wetParams.read (p.wet);
     dsp.setParams (p);
 
     // Some hosts occasionally send blocks larger than announced; process in chunks

@@ -1,20 +1,7 @@
 #pragma once
-#include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
-
-class GlowLookAndFeel : public juce::LookAndFeel_V4
-{
-public:
-    GlowLookAndFeel();
-    void drawRotarySlider (juce::Graphics&, int x, int y, int w, int h, float pos,
-                           float startAngle, float endAngle, juce::Slider&) override;
-    juce::Label* createSliderTextBox (juce::Slider&) override;
-    void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour&, bool over, bool down) override;
-    void drawButtonText (juce::Graphics&, juce::TextButton&, bool over, bool down) override;
-
-    static inline const juce::Colour bg { 0xff1b1714 }, panel { 0xff26201b }, section { 0xff2e2620 },
-        amber { 0xffffa53a }, amberDim { 0xff7a4a1c }, text { 0xffe9dccb }, textDim { 0xff9c8c7a };
-};
+#include "UiCommon.h"
+#include "ModulePanels.h"
 
 class GlowEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
@@ -28,25 +15,35 @@ public:
 private:
     void timerCallback() override;
 
-    struct Knob
+    // One path in the MIX section: fader + meter + EQ/COMP icons
+    struct Strip
     {
-        juce::Slider slider;
+        juce::String prefix, name;
+        juce::Slider fader;
         juce::Label label;
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attach;
+        LevelMeter meter;
+        ModuleIcon eqIcon { ModuleIcon::Kind::eq }, compIcon { ModuleIcon::Kind::comp };
     };
-
-    void setupKnob (Knob&, const juce::String& paramId, const juce::String& name, double resetTo);
-    static void place (Knob&, juce::Rectangle<int>);
+    void setupStrip (Strip&, const juce::String& prefix, const juce::String& name);
+    void layoutStrip (Strip&, juce::Rectangle<int>);
+    void togglePanel (const juce::String& prefix, ModuleIcon::Kind);
+    void closePanel();
 
     GlowProcessor& proc;
     GlowLookAndFeel lnf;
     Knob drive, even, odd, density;
     Knob hpf, preFreq, preGain;
-    Knob postFreq, postGain, mix, output;
+    Knob postFreq, postGain, output;
     juce::TextButton linkButton { "LINK" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> linkAttach;
+    Strip dry, wet;
 
-    juce::Rectangle<int> preArea, tubeArea, postArea, glowArea;
+    std::unique_ptr<ModulePanel> panel;           // the open EQ/COMP panel, if any
+    juce::String panelPrefix;
+    ModuleIcon::Kind panelKind = ModuleIcon::Kind::eq;
+
+    juce::Rectangle<int> preArea, tubeArea, postArea, mixArea, overlayArea, glowArea;
     float lastGlow = -1.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GlowEditor)

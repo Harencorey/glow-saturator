@@ -1,5 +1,7 @@
 // GlowRender in.wav out.wav [name=value ...]
-//   names: drive even odd density hpf preHz preDb postHz postDb mix out block
+//   names: drive even odd density hpf preHz preDb postHz postDb out block
+//   strips (prefix dry/wet): Level Eq F1-4 G1-4 Q1-4 LS HS Comp In Atk Rel Ratio Out Colour Hpf
+//          e.g. wetEq=1 wetG2=4 wetComp=1 wetIn=12 wetRatio=7 dryLevel=-6
 //   e.g.   GlowRender in.wav out.wav drive=60 even=80 hpf=120 postDb=-3
 // Runs the plugin's DSP offline, in host-sized blocks, and writes a 32-bit float WAV.
 // The output is latency-compensated so it lines up sample-for-sample with the input.
@@ -32,7 +34,28 @@ int main (int argc, char** argv)
         else if (key == "preDb")   p.preShelfDb = v;
         else if (key == "postHz")  p.postShelfHz = v;
         else if (key == "postDb")  p.postShelfDb = v;
-        else if (key == "mix")     p.mix = v;
+        else if (key.startsWith ("dry") || key.startsWith ("wet"))
+        {
+            auto& st = key.startsWith ("dry") ? p.dry : p.wet;
+            const auto k = key.substring (3);
+            const int b = k.getLastCharacter() - '1';
+            if      (k == "Level")  st.levelDb = v;
+            else if (k == "Eq")     st.eq.on = v > 0.5f;
+            else if (k.length() == 2 && k[0] == 'F' && b >= 0 && b < 4) st.eq.freq[b] = v;
+            else if (k.length() == 2 && k[0] == 'G' && b >= 0 && b < 4) st.eq.gain[b] = v;
+            else if (k.length() == 2 && k[0] == 'Q' && b >= 0 && b < 4) st.eq.q[b] = v;
+            else if (k == "LS")     st.eq.lowShelf = v > 0.5f;
+            else if (k == "HS")     st.eq.highShelf = v > 0.5f;
+            else if (k == "Comp")   st.comp.on = v > 0.5f;
+            else if (k == "In")     st.comp.inputDb = v;
+            else if (k == "Atk")    st.comp.attackMs = v;
+            else if (k == "Rel")    st.comp.releaseMs = v;
+            else if (k == "Ratio")  st.comp.ratio = (int) v;
+            else if (k == "Out")    st.comp.outputDb = v;
+            else if (k == "Colour") st.comp.colour = (int) v;
+            else if (k == "Hpf")    st.comp.detectorHpf = v > 0.5f;
+            else { std::printf ("unknown option %s\n", argv[a]); return 1; }
+        }
         else if (key == "out")     p.outputDb = v;
         else if (key == "block")   block = juce::jmax (1, (int) v);
         else { std::printf ("unknown option %s\n", argv[a]); return 1; }

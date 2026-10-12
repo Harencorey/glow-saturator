@@ -2,14 +2,15 @@
 #include <juce_dsp/juce_dsp.h>
 #include "Biquad.h"
 #include "DriveMap.h"
+#include "ChannelStrip.h"
 
 // The whole signal path, independent of the plugin wrapper so the offline
 // render tool (tools/RenderTool.cpp) runs the exact same code the plugin does.
 //
 //  in ─┬─ HPF → pre high shelf → input coupling (HPFs) → low bump → presence dip
 //      │   → [4x oversampled: input tube stage → coupling cap → Drive(+Odd) gain → output stage]
-//      │   → DC blocker → auto-gain → post high shelf ─┐
-//      └──────────────── dry (latency-matched) ────────┴─ Mix → Output
+//      │   → DC blocker → auto-gain → post high shelf → WET strip (EQ → Comp → fader) ─┐
+//      └─ dry (latency-matched) ──────────────────────→ DRY strip (EQ → Comp → fader) ─┴─ sum → Output
 //
 // Even/Odd: each tube stage's curve f(x) is split into its odd part (f(x)-f(-x))/2 and
 // its even part (f(x)+f(-x))/2. Only the even part makes even harmonics, so scaling it
@@ -27,8 +28,9 @@ public:
         float hpfHz = 10.0f;    // 10..1000   pre-saturation high-pass, 10 = off
         float preShelfHz = 5000.0f, preShelfDb = 0.0f;    // pre-saturation high shelf
         float postShelfHz = 5000.0f, postShelfDb = 0.0f;  // post-saturation high shelf
-        float mix = 100.0f;     // 0..100 %
         float outputDb = 0.0f;  // -24..+12 dB
+        ChannelStrip::Settings dry { ChannelStrip::kOffDb, {}, {} };   // dry path off by default
+        ChannelStrip::Settings wet { 0.0f, {}, {} };                   // wet path at unity
     };
 
     void prepare (double sampleRate, int maxBlock, int numChannels)
@@ -41,10 +43,14 @@ public:
             juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
         oversampler->initProcessing ((size_t) maxBlock);
 
+        // dry path: delayed by exactly the oversampling latency so it lines up with the wet path
         juce::dsp::ProcessSpec spec { sr, (juce::uint32) maxBlock, (juce::uint32) channels };
-        dryWet.prepare (spec);
-        dryWet.setMixingRule (juce::dsp::DryWetMixingRule::linear);
-        dryWet.setWetLatency ((float) getLatencySamples());
+        dryDelay.prepare (spec);
+        dryDelay.setMaximumDelayInSamples (getLatencySamples() + 1);
+        dryDelay.setDelay ((float) getLatencySamples());
+        dryBuf.setSize (channels, maxBlock, false, true, true);
+        dryStrip.prepare (sr, channels);
+        wetStrip.prepare (sr, channels);
 
         ch.assign ((size_t) channels, Channel {});
         for (auto& c : ch)
@@ -79,7 +85,9 @@ public:
     void reset()
     {
         if (oversampler) oversampler->reset();
-        dryWet.reset();
+        dryDelay.reset();
+        dryStrip.reset();
+        wetStrip.reset();
         for (auto& c : ch)
         {
             c.hp1.reset(); c.hp2.reset(); c.bump.reset(); c.dip.reset();
@@ -108,7 +116,6 @@ public:
         smPostHz.setTargetValue (p.postShelfHz);
         smPostDb.setTargetValue (p.postShelfDb);
         smOut.setTargetValue (juce::Decibels::decibelsToGain (p.outputDb));
-        dryWet.setWetMixProportion (p.mix / 100.0f);
     }
 
     void process (juce::dsp::AudioBlock<float>& block)
@@ -127,10 +134,16 @@ public:
             for (auto* v : { &smHpf, &smPreHz, &smPreDb, &smPostHz, &smPostDb })
                 v->setCurrentAndTargetValue (v->getTargetValue());
             smOut.setCurrentAndTargetValue (smOut.getTargetValue());
-            dryWet.reset(); // snaps the mixer's smoothed dry/wet gains to the current Mix
         }
 
-        dryWet.pushDrySamples (block);
+        // keep a latency-aligned copy of the input for the dry path
+        auto dry = juce::dsp::AudioBlock<float> (dryBuf).getSubsetChannelBlock (0, (size_t) nch).getSubBlock (0, (size_t) n);
+        for (int c = 0; c < nch; ++c)
+        {
+            const auto* x = block.getChannelPointer ((size_t) c);
+            auto* d = dry.getChannelPointer ((size_t) c);
+            for (int i = 0; i < n; ++i) { dryDelay.pushSample (c, x[i]); d[i] = dryDelay.popSample (c); }
+        }
 
         // drive/density are smoothed per block; gains are ramped per sample
         const auto shape = DriveMap::at (smDrive.skip (n));
@@ -242,7 +255,11 @@ public:
         }
         smPost.skip (n);
 
-        dryWet.mixWetSamples (block);
+        // channel strips, then sum (a muted dry path costs nothing)
+        auto wetBlock = block.getSubsetChannelBlock (0, (size_t) nch);
+        wetStrip.process (wetBlock, params.wet);
+        dryStrip.process (dry, params.dry);
+        wetBlock.add (dry);
 
         for (int c = 0; c < nch; ++c)
         {
@@ -330,7 +347,17 @@ private:
     int channels = 2;
     std::vector<Channel> ch;
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
-    juce::dsp::DryWetMixer<float> dryWet { 4096 };
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::None> dryDelay { 4096 };
+    juce::AudioBuffer<float> dryBuf;
+    ChannelStrip dryStrip, wetStrip;
+
+public:
+    // meters for the UI (call from the message thread)
+    float takeDryPeak() { return dryStrip.takePeak(); }
+    float takeWetPeak() { return wetStrip.takePeak(); }
+    float dryGainReductionDb() const { return dryStrip.getGainReductionDb(); }
+    float wetGainReductionDb() const { return wetStrip.getGainReductionDb(); }
+private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smPre { 1.0f }, smPost { 1.0f }, smOut { 1.0f };
     juce::SmoothedValue<float> smDrive, smDensity, smEven, smOdd;
     juce::SmoothedValue<float> smHpf, smPreHz, smPreDb, smPostHz, smPostDb;

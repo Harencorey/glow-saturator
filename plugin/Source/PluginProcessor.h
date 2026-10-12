@@ -33,6 +33,12 @@ public:
     void setStateInformation (const void*, int) override;
 
     juce::AudioProcessorValueTreeState apvts;
+
+    // meters (message thread)
+    float takeDryPeak() { return dsp.takeDryPeak(); }
+    float takeWetPeak() { return dsp.takeWetPeak(); }
+    float dryGainReductionDb() const { return dsp.dryGainReductionDb(); }
+    float wetGainReductionDb() const { return dsp.wetGainReductionDb(); }
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
 
 private:
@@ -48,8 +54,21 @@ private:
     std::atomic<float>* pPostHz = nullptr;
     std::atomic<float>* pPostDb = nullptr;
     std::atomic<float>* pLink = nullptr;
-    std::atomic<float>* pMix = nullptr;
     std::atomic<float>* pOutput = nullptr;
+
+    // raw parameter pointers for one channel strip ("dry" or "wet")
+    struct StripParams
+    {
+        std::atomic<float>* level = nullptr;
+        std::atomic<float>* eqOn = nullptr;
+        std::atomic<float>* f[4] {}, * g[4] {}, * q[4] {};
+        std::atomic<float>* lowShelf = nullptr, * highShelf = nullptr;
+        std::atomic<float>* compOn = nullptr, * in = nullptr, * atk = nullptr, * rel = nullptr;
+        std::atomic<float>* ratio = nullptr, * out = nullptr, * colour = nullptr, * hpf = nullptr;
+        void bind (juce::AudioProcessorValueTreeState&, const juce::String& prefix);
+        void read (ChannelStrip::Settings&) const;
+    };
+    StripParams dryParams, wetParams;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GlowProcessor)
 };
