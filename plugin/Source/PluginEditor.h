@@ -24,6 +24,7 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attach;
         LevelMeter meter;
         ModuleIcon eqIcon { ModuleIcon::Kind::eq }, compIcon { ModuleIcon::Kind::comp };
+        std::atomic<float>* eqOn = nullptr, * compOn = nullptr;
     };
     void setupStrip (Strip&, const juce::String& prefix, const juce::String& name);
     void layoutStrip (Strip&, juce::Rectangle<int>);

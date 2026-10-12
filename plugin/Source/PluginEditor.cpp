@@ -160,6 +160,8 @@ void GlowEditor::setupStrip (Strip& st, const String& prefix, const String& name
     addAndMakeVisible (st.eqIcon);
     addAndMakeVisible (st.compIcon);
     st.attach = std::make_unique<AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, prefix + "Level", st.fader);
+    st.eqOn = proc.apvts.getRawParameterValue (prefix + "EqOn");
+    st.compOn = proc.apvts.getRawParameterValue (prefix + "CompOn");
     st.eqIcon.setTooltip (name + " path EQ");
     st.compIcon.setTooltip (name + " path compressor");
     st.eqIcon.onClick = [this, prefix] { togglePanel (prefix, ModuleIcon::Kind::eq); };
@@ -201,12 +203,11 @@ void GlowEditor::timerCallback()
 
     dry.meter.push (proc.takeDryPeak());
     wet.meter.push (proc.takeWetPeak());
-    auto on = [this] (const String& id) { return proc.apvts.getRawParameterValue (id)->load() > 0.5f; };
     for (auto* st : { &dry, &wet })
     {
         const bool mine = panel != nullptr && panelPrefix == st->prefix;
-        st->eqIcon.setState (on (st->prefix + "EqOn"), mine && panelKind == ModuleIcon::Kind::eq);
-        st->compIcon.setState (on (st->prefix + "CompOn"), mine && panelKind == ModuleIcon::Kind::comp);
+        st->eqIcon.setState (st->eqOn->load() > 0.5f, mine && panelKind == ModuleIcon::Kind::eq);
+        st->compIcon.setState (st->compOn->load() > 0.5f, mine && panelKind == ModuleIcon::Kind::comp);
     }
     if (panel != nullptr) panel->refresh();
 

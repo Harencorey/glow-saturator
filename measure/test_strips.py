@@ -24,11 +24,18 @@ def level(y, f):
 DRY_ONLY = dict(wetLevel=-60, dryLevel=0)
 ok = True
 
-# 1. dry path is a clean, latency-aligned copy of the input
-x = np.random.default_rng(0).standard_normal(SR) * 0.2
+# 1. dry path is flat and latency-aligned with the input (it carries the same linear-phase
+#    oversampling filters and a low-end phase-match all-pass, so it is not a bit-exact copy)
+x = np.random.default_rng(0).standard_normal(SR * 30) * 0.2
 y = render(x, **DRY_ONLY)
-e = 20 * np.log10(np.max(np.abs(y - x)) + 1e-30)
-print(f"dry-only null vs input: {e:.1f} dB {'OK' if e < -120 else 'FAIL'}"); ok &= e < -120
+from scipy.signal import csd, welch
+fr, Pxy = csd(x, y, fs=SR, nperseg=65536)       # averaged transfer function H = Pxy / Pxx
+_, Pxx = welch(x, fs=SR, nperseg=65536)
+band = (fr > 30) & (fr < 18000)
+mag = 20 * np.log10(np.abs(Pxy[band] / Pxx[band]))
+lag = np.argmax(np.correlate(y[1000:5000], x[1000:5000], "full")) - (4000 - 1)
+print(f"dry-only vs input: magnitude {mag.min():+.2f}..{mag.max():+.2f} dB (30 Hz-18 kHz), time offset {lag} samples "
+      f"{'OK' if abs(mag).max() < 0.1 and lag == 0 else 'FAIL'}"); ok &= abs(mag).max() < 0.1 and lag == 0
 
 # 2. dry 0 dB + wet at drive 0 -> parallel sum, check it sums coherently (no comb filtering)
 y = render(tone(1000, -30), drive=0, density=0, dryLevel=0)

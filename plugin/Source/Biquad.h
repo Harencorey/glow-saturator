@@ -36,6 +36,13 @@ struct Biquad
         a1 = (k - 1) / (1 + k); a2 = 0;
     }
 
+    // 2nd-order all-pass: flat magnitude, phase rotates 360 degrees around fc
+    void setAllPass (double fc, double q, double sr) noexcept
+    {
+        const double w = 2.0 * M_PI * fc / sr, al = std::sin (w) / (2.0 * q), c = std::cos (w);
+        set (1 - al, -2 * c, 1 + al, 1 + al, -2 * c, 1 - al);
+    }
+
     void setPeak (double fc, double gainDb, double q, double sr) noexcept
     {
         const double A = std::pow (10.0, gainDb / 40.0);

@@ -159,6 +159,36 @@ void GlowProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     maxBlock = juce::jmax (1, samplesPerBlock);
     dsp.prepare (sampleRate, maxBlock, getTotalNumOutputChannels());
     setLatencySamples (dsp.getLatencySamples());
+
+    bypassDelay.prepare ({ sampleRate, (juce::uint32) maxBlock, (juce::uint32) juce::jmax (1, getTotalNumOutputChannels()) });
+    bypassDelay.setMaximumDelayInSamples (dsp.getLatencySamples() + 1);
+    bypassDelay.setDelay ((float) dsp.getLatencySamples());
+    bypassDelay.reset();
+}
+
+// Always keeps the bypass delay line fed with the input, so switching bypass on or off is
+// seamless (the delayed signal is already there). writeOutput = true while bypassed.
+void GlowProcessor::feedBypassDelay (juce::AudioBuffer<float>& buffer, bool writeOutput)
+{
+    const int nch = juce::jmin (buffer.getNumChannels(), getTotalNumOutputChannels());
+    for (int c = 0; c < nch; ++c)
+    {
+        auto* x = buffer.getWritePointer (c);
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            bypassDelay.pushSample (c, x[i]);
+            const float d = bypassDelay.popSample (c);
+            if (writeOutput) x[i] = d;
+        }
+    }
+}
+
+void GlowProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+{
+    juce::ScopedNoDenormals noDenormals;
+    for (int c = getTotalNumInputChannels(); c < getTotalNumOutputChannels(); ++c)
+        buffer.clear (c, 0, buffer.getNumSamples());
+    feedBypassDelay (buffer, true);
 }
 
 void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -166,6 +196,7 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     juce::ScopedNoDenormals noDenormals;
     for (int c = getTotalNumInputChannels(); c < getTotalNumOutputChannels(); ++c)
         buffer.clear (c, 0, buffer.getNumSamples());
+    feedBypassDelay (buffer, false);
 
     GlowDSP::Params p;
     p.drive = pDrive->load();

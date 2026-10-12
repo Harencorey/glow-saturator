@@ -62,4 +62,13 @@ if(GLOW_BUILD_TOOLS)
     target_compile_definitions(GlowRender PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
     target_link_libraries(GlowRender PRIVATE juce::juce_audio_formats juce::juce_dsp
         PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
+    # Host-style test of the real processor (timing, bypass latency, stereo)
+    juce_add_console_app(GlowProcTest PRODUCT_NAME "GlowProcTest")
+    target_sources(GlowProcTest PRIVATE tools/ProcTest.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp)
+    target_include_directories(GlowProcTest PRIVATE Source)
+    target_compile_definitions(GlowProcTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+        JucePlugin_Name="Glow" JucePlugin_VersionString="test" JUCE_STANDALONE_APPLICATION=1)
+    target_link_libraries(GlowProcTest PRIVATE juce::juce_audio_utils juce::juce_dsp
+        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 endif()

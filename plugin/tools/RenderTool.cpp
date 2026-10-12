@@ -77,6 +77,7 @@ int main (int argc, char** argv)
     buf.clear();
     reader->read (&buf, 0, len, 0, true, true);
 
+    const double t0 = juce::Time::getMillisecondCounterHiRes();
     for (int start = 0; start < buf.getNumSamples(); start += block)
     {
         const int n = juce::jmin (block, buf.getNumSamples() - start);
@@ -84,6 +85,10 @@ int main (int argc, char** argv)
         auto sub = b.getSubBlock ((size_t) start, (size_t) n);
         dsp.process (sub);
     }
+
+    const double ms = juce::Time::getMillisecondCounterHiRes() - t0;
+    const double audioMs = 1000.0 * buf.getNumSamples() / reader->sampleRate;
+    std::printf ("dsp time %.1f ms for %.1f s of audio = %.2f %% of one core\n", ms, audioMs / 1000.0, 100.0 * ms / audioMs);
 
     juce::AudioBuffer<float> res (nch, len);
     for (int c = 0; c < nch; ++c) res.copyFrom (c, 0, buf, c, lat, len);

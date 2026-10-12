@@ -44,7 +44,7 @@ For Logic, you can validate the AU with `auval -v aufx Glw1 Hrna`.
 | Control | What it does |
 |---|---|
 | **Dry / Wet faders** | −60 dB (Off) to +6 dB, each with a peak meter. The two are summed in parallel. The dry path is latency-aligned, so it never comb-filters. Defaults are Wet 0 dB and Dry Off. |
-| **EQ icon** | Opens that path's 4-band parametric EQ with a response curve. Each band has Freq (20 Hz–20 kHz), Gain (±18 dB) and Q (0.1–10); bands 1 and 4 switch between shelf and bell. The icon lights up when the EQ is on. |
+| **EQ icon** | Opens that path's 4-band parametric EQ with a response curve. **Drag a point** to set frequency/gain (hold Shift for frequency only), **scroll** over a point for Q, and **double-click** a point to reset its gain. Dragging switches a bypassed EQ on. Each band has Freq (20 Hz–20 kHz), Gain (±18 dB) and Q (0.1–10); bands 1 and 4 switch between shelf and bell. Settings glide over ~30 ms, so moves never zipper. The icon lights up when the EQ is on. |
 | **COMP icon** | Opens that path's "Distressor-style" compressor. There's no threshold: **Input** drives into a fixed −18 dBFS threshold and **Output** sets the level after. Attack runs 0.05–30 ms, release 50 ms–3.5 s. Ratios are 1:1, 2, 3, 4, 6, 10, 20 and **NUKE** (brickwall), with the knee hardening as the ratio rises. **Distortion** offers Clean / Dist 2 (2nd harmonic) / Dist 3 (3rd harmonic), and at 1:1 the comp is just a colour box. **Detector HPF** keeps lows from pumping it. Includes a gain-reduction meter. |
 
 Signal order in each path: EQ → Comp → fader.
@@ -62,7 +62,17 @@ in ─┬─ HPF → pre shelf → input coupling HPFs (~24 Hz res.) → low bum
     └─ dry (latency-matched) ─────────────────→ DRY strip (EQ → Comp → fader) ─┴─ sum → Output
 ```
 
-Latency: 61 samples at 48 kHz (linear-phase oversampling, reported to the host).
+### Quality and timing
+- **Oversampling:** the tube stages run at ~384 kHz whatever the session rate (8× at 44.1/48k,
+  4× at 88.2/96k, 2× at 176.4/192k), using linear-phase FIR filters. The comp's distortion colour runs 4× (2× at 88.2k and up).
+- **Latency:** 103 samples at 44.1/48 kHz, reported to the host and compensated. **Bypass keeps the same latency**,
+  so toggling bypass never shifts the track in time.
+- **Dry/Wet phase:** the dry path runs through an identical copy of the oversampling filters, plus an all-pass
+  (flat magnitude) fitted to the wet path's low-end filters. The two sum coherently: under 7° of difference from 20 Hz–20 kHz,
+  and the dry path is flat within ±0.04 dB.
+- **Stereo:** identical L/R in gives bit-identical L/R out, with no crosstalk. The compressors and the Odd auto-gain are stereo-linked.
+- **CPU** (one core of a 2.8 GHz cloud Xeon, 48 kHz stereo): ~7 % at default, ~12 % with Even/Odd in use,
+  ~16 % with both strips' EQ + comps on. Expect roughly half that on Apple Silicon.
 
 ## How close it is to BB Tubes (measured at Drive 0/25/50/75/100)
 

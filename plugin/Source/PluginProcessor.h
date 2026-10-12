@@ -12,6 +12,10 @@ public:
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout&) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    // Bypass keeps the same latency as processing, so toggling bypass never shifts the track
+    // in time against other tracks (which would comb-filter on shared sources).
+    void processBlockBypassed (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    using AudioProcessor::processBlockBypassed;
     using AudioProcessor::processBlock;
 
     juce::AudioProcessorEditor* createEditor() override;
@@ -44,6 +48,8 @@ public:
 private:
     GlowDSP dsp;
     int maxBlock = 512;
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::None> bypassDelay { 4096 };
+    void feedBypassDelay (juce::AudioBuffer<float>&, bool writeOutput);
     std::atomic<float>* pDrive = nullptr;
     std::atomic<float>* pEven = nullptr;
     std::atomic<float>* pOdd = nullptr;

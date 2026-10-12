@@ -110,11 +110,80 @@ private:
 };
 
 //==============================================================================
-// EQ response display: reads the band parameters and draws the combined curve.
+// EQ response display: draws the combined curve, and the band points can be dragged
+// (left/right = frequency, up/down = gain), scrolled (Q) and double-clicked (gain to 0 dB).
 class EqCurve : public juce::Component
 {
 public:
-    EqCurve (juce::AudioProcessorValueTreeState& s, const juce::String& prefix) : state (s), p (prefix) {}
+    EqCurve (juce::AudioProcessorValueTreeState& s, const juce::String& prefix) : state (s), p (prefix)
+    {
+        for (int b = 0; b < 4; ++b)
+        {
+            const juce::String n (b + 1);
+            freqParam[b] = state.getParameter (p + "EqFreq" + n);
+            gainParam[b] = state.getParameter (p + "EqGain" + n);
+            qParam[b] = state.getParameter (p + "EqQ" + n);
+        }
+        onParam = state.getParameter (p + "EqOn");
+        setRepaintsOnMouseActivity (false);
+    }
+
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        const int h = hitBand (e.position);
+        if (h != hover) { hover = h; repaint(); }
+        setMouseCursor (h >= 0 ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
+    }
+
+    void mouseExit (const juce::MouseEvent&) override { if (hover >= 0) { hover = -1; repaint(); } }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        dragBand = hitBand (e.position);
+        if (dragBand < 0) return;
+        if (onParam != nullptr && onParam->getValue() < 0.5f)   // dragging a point switches the EQ in
+            onParam->setValueNotifyingHost (1.0f);
+        freqParam[dragBand]->beginChangeGesture();
+        gainParam[dragBand]->beginChangeGesture();
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (dragBand < 0) return;
+        const auto r = getLocalBounds().toFloat();
+        const float t = juce::jlimit (0.0f, 1.0f, (e.position.x - r.getX()) / r.getWidth());
+        const float f = 20.0f * std::pow (1000.0f, t);
+        const float db = juce::jlimit (-18.0f, 18.0f, (r.getCentreY() - e.position.y) / (r.getHeight() * 0.5f * 0.9f) * 20.0f);
+        setParam (freqParam[dragBand], f);
+        setParam (gainParam[dragBand], e.mods.isShiftDown() ? gainOf (dragBand) : db);   // shift: frequency only
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (dragBand < 0) return;
+        freqParam[dragBand]->endChangeGesture();
+        gainParam[dragBand]->endChangeGesture();
+        dragBand = -1;
+    }
+
+    void mouseDoubleClick (const juce::MouseEvent& e) override
+    {
+        const int b = hitBand (e.position);
+        if (b < 0) return;
+        gainParam[b]->beginChangeGesture();
+        setParam (gainParam[b], 0.0f);
+        gainParam[b]->endChangeGesture();
+    }
+
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
+    {
+        const int b = dragBand >= 0 ? dragBand : hitBand (e.position);
+        if (b < 0) return;
+        const float q = qParam[b]->convertFrom0to1 (qParam[b]->getValue());
+        qParam[b]->beginChangeGesture();
+        setParam (qParam[b], juce::jlimit (0.1f, 10.0f, q * std::pow (2.0f, w.deltaY * 2.0f)));
+        qParam[b]->endChangeGesture();
+    }
 
     EqSettings read() const
     {
@@ -183,22 +252,60 @@ public:
         g.setColour (col);
         g.strokePath (path, juce::PathStrokeType (2.0f));
 
-        // band handles
+        // band handles (bigger when hovered or dragged), with a readout for the active one
         for (int b = 0; b < 4; ++b)
         {
             const float x = xOf (shown.freq[b]), y = yOf (shown.gain[b]);
-            g.setColour (col);
-            g.fillEllipse (x - 5.0f, y - 5.0f, 10.0f, 10.0f);
+            const bool active = b == hover || b == dragBand;
+            const float rad = active ? 8.0f : 6.0f;
+            g.setColour (active ? GlowLookAndFeel::text : col);
+            g.fillEllipse (x - rad, y - rad, 2.0f * rad, 2.0f * rad);
             g.setColour (GlowLookAndFeel::bg);
-            g.setFont (juce::FontOptions (8.0f, juce::Font::bold));
-            g.drawText (juce::String (b + 1), juce::Rectangle<float> (x - 5.0f, y - 5.0f, 10.0f, 10.0f), juce::Justification::centred);
+            g.setFont (juce::FontOptions (active ? 10.0f : 8.5f, juce::Font::bold));
+            g.drawText (juce::String (b + 1), juce::Rectangle<float> (x - rad, y - rad, 2.0f * rad, 2.0f * rad), juce::Justification::centred);
+            if (active)
+            {
+                const juce::String txt = (shown.freq[b] >= 1000.0f ? juce::String (shown.freq[b] / 1000.0f, 2) + " kHz" : juce::String ((int) shown.freq[b]) + " Hz")
+                                         + "   " + (shown.gain[b] > 0.05f ? "+" : "") + juce::String (shown.gain[b], 1) + " dB   Q " + juce::String (shown.q[b], 2);
+                auto box = juce::Rectangle<float> (x - 80.0f, y - rad - 22.0f, 160.0f, 16.0f).constrainedWithin (r.reduced (2.0f));
+                g.setColour (juce::Colours::black.withAlpha (0.7f));
+                g.fillRoundedRectangle (box, 3.0f);
+                g.setColour (GlowLookAndFeel::text);
+                g.setFont (juce::FontOptions (10.5f));
+                g.drawText (txt, box, juce::Justification::centred);
+            }
         }
     }
 
 private:
+    int hitBand (juce::Point<float> pos) const
+    {
+        const auto r = getLocalBounds().toFloat();
+        int best = -1;
+        float bestD = 14.0f;   // grab radius, px
+        for (int b = 0; b < 4; ++b)
+        {
+            const float x = r.getX() + r.getWidth() * std::log (shown.freq[b] / 20.0f) / std::log (1000.0f);
+            const float y = r.getCentreY() - r.getHeight() * 0.5f * juce::jlimit (-1.0f, 1.0f, shown.gain[b] / 20.0f) * 0.9f;
+            const float d = pos.getDistanceFrom ({ x, y });
+            if (d < bestD) { bestD = d; best = b; }
+        }
+        return best;
+    }
+
+    float gainOf (int b) const { return gainParam[b]->convertFrom0to1 (gainParam[b]->getValue()); }
+
+    static void setParam (juce::RangedAudioParameter* prm, float v)
+    {
+        prm->setValueNotifyingHost (prm->convertTo0to1 (v));
+    }
+
     juce::AudioProcessorValueTreeState& state;
     juce::String p;
     EqSettings shown;
+    juce::RangedAudioParameter* freqParam[4] {}, * gainParam[4] {}, * qParam[4] {};
+    juce::RangedAudioParameter* onParam = nullptr;
+    int hover = -1, dragBand = -1;
 };
 
 //==============================================================================

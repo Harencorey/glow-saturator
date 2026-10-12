@@ -3,19 +3,57 @@
 #include "Biquad.h"
 #include "DriveMap.h"
 #include "ChannelStrip.h"
+#include "DryPhase.h"
 
 // The whole signal path, independent of the plugin wrapper so the offline
 // render tool (tools/RenderTool.cpp) runs the exact same code the plugin does.
 //
 //  in ─┬─ HPF → pre high shelf → input coupling (HPFs) → low bump → presence dip
-//      │   → [4x oversampled: input tube stage → coupling cap → Drive(+Odd) gain → output stage]
+//      │   → [oversampled to ~384 kHz: input tube stage → coupling cap → Drive(+Odd) gain → output stage]
 //      │   → DC blocker → auto-gain → post high shelf → WET strip (EQ → Comp → fader) ─┐
-//      └─ dry (latency-matched) ──────────────────────→ DRY strip (EQ → Comp → fader) ─┴─ sum → Output
+//      └─ dry → same oversampling filters (no saturation) → phase-match all-pass → DRY strip ─┴─ sum → Output
+//
+// Dry/Wet phase: the dry path goes through an identical copy of the oversampling filters, so
+// its latency and top-end phase match the wet path exactly, plus an all-pass (flat magnitude)
+// fitted to the wet path's fixed low-end filters. Dry + Wet therefore sum without cancelling.
 //
 // Even/Odd: each tube stage's curve f(x) is split into its odd part (f(x)-f(-x))/2 and
 // its even part (f(x)+f(-x))/2. Only the even part makes even harmonics, so scaling it
 // (Even knob) changes 2nd/4th/6th... without touching the odd ones. Odd sets how hard the
 // output stage clips (symmetric clipping = odd harmonics). At 50/50 both are as measured.
+// The tube stages' knee function h(b) = (1 + b^s)^(-1/s) on b in [0, 1], tabulated with
+// Catmull-Rom interpolation. Replaces two pow() calls per sample; matches the exact
+// formula to better than -120 dB. Rebuilt only when the knee hardness s changes.
+class KneeTable
+{
+public:
+    void build (float s) noexcept
+    {
+        sharp = s;
+        for (int k = 0; k < N + 4; ++k)
+        {
+            const double b = std::abs ((double) (k - 1) / N);
+            t[(size_t) k] = (float) std::pow (1.0 + std::pow (b, (double) s), -1.0 / (double) s);
+        }
+    }
+    // a change of 0.1 % in knee hardness is far below audibility; avoids rebuilding every block
+    bool needs (float s) const noexcept { return std::abs (s - sharp) > 1.0e-3f * s; }
+
+    inline float operator() (float b) const noexcept   // b in [0, 1]
+    {
+        const float pos = b * (float) N;
+        const int i = juce::jlimit (0, N - 1, (int) pos);
+        const float f = pos - (float) i;
+        const float y0 = t[(size_t) i], y1 = t[(size_t) i + 1], y2 = t[(size_t) i + 2], y3 = t[(size_t) i + 3];
+        return y1 + 0.5f * f * (y2 - y0 + f * (2.0f * y0 - 5.0f * y1 + 4.0f * y2 - y3 + f * (3.0f * (y1 - y2) + y3 - y0)));
+    }
+
+private:
+    static constexpr int N = 2048;
+    std::array<float, N + 4> t {};
+    float sharp = -1.0f;
+};
+
 class GlowDSP
 {
 public:
@@ -38,19 +76,23 @@ public:
         sr = sampleRate;
         channels = juce::jmax (1, numChannels);
 
+        // keep the tube stages at ~384 kHz whatever the session rate: 8x at 44.1/48k,
+        // 4x at 88.2/96k, 2x at 176.4/192k (same aliasing protection, no wasted CPU)
+        osStages = sr < 60000.0 ? 3 : (sr < 120000.0 ? 2 : 1);
         oversampler = std::make_unique<juce::dsp::Oversampling<float>> (
-            (size_t) channels, kOversampleStages,
+            (size_t) channels, osStages,
             juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
         oversampler->initProcessing ((size_t) maxBlock);
 
-        // dry path: delayed by exactly the oversampling latency so it lines up with the wet path
-        juce::dsp::ProcessSpec spec { sr, (juce::uint32) maxBlock, (juce::uint32) channels };
-        dryDelay.prepare (spec);
-        dryDelay.setMaximumDelayInSamples (getLatencySamples() + 1);
-        dryDelay.setDelay ((float) getLatencySamples());
+        // dry path: identical oversampling filters (no saturation) -> same latency and phase
+        dryOversampler = std::make_unique<juce::dsp::Oversampling<float>> (
+            (size_t) channels, osStages,
+            juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, true);
+        dryOversampler->initProcessing ((size_t) maxBlock);
+        jassert (std::abs (dryOversampler->getLatencyInSamples() - oversampler->getLatencyInSamples()) < 1.0e-6f);
         dryBuf.setSize (channels, maxBlock, false, true, true);
-        dryStrip.prepare (sr, channels);
-        wetStrip.prepare (sr, channels);
+        dryStrip.prepare (sr, channels, maxBlock);
+        wetStrip.prepare (sr, channels, maxBlock);
 
         ch.assign ((size_t) channels, Channel {});
         for (auto& c : ch)
@@ -65,7 +107,11 @@ public:
             c.hpf.setIdentity();
             c.preShelf.setIdentity();
             c.postShelf.setIdentity();
+            for (int k = 0; k < DryPhase::numSecondOrder; ++k)
+                c.dryPhase[(size_t) k].setAllPass (DryPhase::secondOrder[k].fc, DryPhase::secondOrder[k].q, sr);
         }
+        knee1.build (DriveMap::st1.sharp);
+        knee2.build (DriveMap::at (params.drive).sharp);
         hpfOn = false;
         lastHpf = lastPreHz = lastPreDb = lastPostHz = lastPostDb = -1.0e9f;
 
@@ -85,7 +131,7 @@ public:
     void reset()
     {
         if (oversampler) oversampler->reset();
-        dryDelay.reset();
+        if (dryOversampler) dryOversampler->reset();
         dryStrip.reset();
         wetStrip.reset();
         for (auto& c : ch)
@@ -93,14 +139,16 @@ public:
             c.hp1.reset(); c.hp2.reset(); c.bump.reset(); c.dip.reset();
             c.dc.reset(); c.inter.reset();
             c.hpf.reset(); c.preShelf.reset(); c.postShelf.reset();
+            for (auto& f : c.dryPhase) f.reset();
         }
         oddMakeup = 1.0f;
         oddPowAvg = refPowAvg = 0.0f;
     }
 
+    // tube-stage oversampling + the channel strips' colour oversampling (same on both paths)
     int getLatencySamples() const
     {
-        return oversampler ? (int) std::round (oversampler->getLatencyInSamples()) : 0;
+        return (oversampler ? (int) std::round (oversampler->getLatencyInSamples()) : 0) + wetStrip.getLatencySamples();
     }
 
     void setParams (const Params& p)
@@ -136,13 +184,36 @@ public:
             smOut.setCurrentAndTargetValue (smOut.getTargetValue());
         }
 
-        // keep a latency-aligned copy of the input for the dry path
+        // dry path: copy of the input through the same oversampling filters + phase-match all-pass
         auto dry = juce::dsp::AudioBlock<float> (dryBuf).getSubsetChannelBlock (0, (size_t) nch).getSubBlock (0, (size_t) n);
-        for (int c = 0; c < nch; ++c)
+        const bool dryActive = params.dry.levelDb > ChannelStrip::kOffDb || ! dryStrip.isMutedSteady();
+        if (dryActive)
         {
-            const auto* x = block.getChannelPointer ((size_t) c);
-            auto* d = dry.getChannelPointer ((size_t) c);
-            for (int i = 0; i < n; ++i) { dryDelay.pushSample (c, x[i]); d[i] = dryDelay.popSample (c); }
+            if (dryStale)   // fader just came up: start the dry filters from a clean state
+            {
+                dryOversampler->reset();
+                for (auto& c : ch) for (auto& f : c.dryPhase) f.reset();
+                dryStale = false;
+            }
+            dry.copyFrom (block.getSubsetChannelBlock (0, (size_t) nch));
+            dryOversampler->processSamplesUp (dry);
+            dryOversampler->processSamplesDown (dry);
+            for (int c = 0; c < nch; ++c)
+            {
+                auto* d = dry.getChannelPointer ((size_t) c);
+                auto& s = ch[(size_t) c];
+                for (int i = 0; i < n; ++i)
+                {
+                    double v = d[i];
+                    for (auto& f : s.dryPhase) v = f.process (v);
+                    d[i] = (float) v;
+                }
+            }
+        }
+        else
+        {
+            dry.clear();
+            dryStale = true;
         }
 
         // drive/density are smoothed per block; gains are ramped per sample
@@ -197,6 +268,7 @@ public:
         auto up = oversampler->processSamplesUp (block);
         const int nu = (int) up.getNumSamples();
         const float gStep = (g1 - g0) / (float) nu;
+        if (knee2.needs (shape.sharp)) knee2.build (shape.sharp);   // only while Drive moves
         double powOdd = 0.0, powRef = 0.0;   // block energy: actual vs nominal-Odd output stage
         for (int c = 0; c < nch; ++c)
         {
@@ -206,16 +278,17 @@ public:
             for (int i = 0; i < nu; ++i, g += gStep)
             {
                 // input stage: unity for small signals, bends lopsidedly when hit hard
-                const float w = stage (u[i] * k1, DriveMap::st1.sharp, DriveMap::st1.asym, DriveMap::st1.k2, evenGain);
+                const float w = stage (u[i] * k1, knee1, DriveMap::st1.asym, DriveMap::st1.k2, evenGain);
                 // coupling cap: its DC shift is what makes hot passages clip lopsided,
                 // and its recovery is the ~half-second "breathing" after loud hits
                 const float v = (float) s.inter.process ((double) w) * k1inv;
                 // drive into the output stage
-                const float y = stage (v * g, shape.sharp, shape.asym, shape.k2, evenGain);
-                if (oddActive)
+                const float y = stage (v * g, knee2, shape.asym, shape.k2, evenGain);
+                if (oddActive && (i & 3) == 0)
                 {
-                    // silent reference: same sample through the output stage at nominal Odd
-                    const float yRef = stage (v * g * oddInv, shape.sharp, shape.asym, shape.k2, evenGain);
+                    // silent reference: the output stage at nominal Odd. Only a loudness estimate
+                    // is needed, so every 4th oversampled sample is plenty.
+                    const float yRef = stage (v * g * oddInv, knee2, shape.asym, shape.k2, evenGain);
                     powOdd += (double) y * y;
                     powRef += (double) yRef * yRef;
                 }
@@ -273,17 +346,37 @@ public:
     // A tube stage with its even-harmonic content scaled by evenGain.
     // evenGain == 1 is the plain stage (one evaluation); otherwise the curve is split into
     // odd and even parts:  odd = (f(u) - f(-u)) / 2,  even = (f(u) + f(-u)) / 2.
-    static inline float stage (float u, float sharp, float asym, float k2, float evenGain) noexcept
+    static inline float stage (float u, const KneeTable& knee, float asym, float k2, float evenGain) noexcept
     {
-        const float a = shapeStage (u, sharp, asym, k2);
+        // the even-order bend is the same for u and -u, so it is computed once
+        const float uu = u * u;
+        const float bend = k2 * uu / std::sqrt (1.0f + uu * uu);
+        const float a = clipStage (u + bend, knee, asym);
         if (std::abs (evenGain - 1.0f) < 1.0e-6f) return a;   // default: plain stage, one evaluation
-        const float b = shapeStage (-u, sharp, asym, k2);
+        const float b = clipStage (-u + bend, knee, asym);     // f(-u)
         return 0.5f * (a - b) + evenGain * 0.5f * (a + b);
     }
 
+    // Same curve as shapeStageExact(), with the knee read from the table.
+    static inline float shapeStage (float u, const KneeTable& knee, float asym, float k2) noexcept
+    {
+        const float uu = u * u;
+        return clipStage (u + k2 * uu / std::sqrt (1.0f + uu * uu), knee, asym);
+    }
+
+    static inline float clipStage (float v, const KneeTable& knee, float asym) noexcept
+    {
+        const float ceil = v >= 0.0f ? 1.0f - asym : 1.0f + asym;
+        const float r = v / ceil;
+        const float ar = std::abs (r);
+        if (ar < 1.0e-9f) return v;
+        if (ar <= 1.0f) return ceil * r * knee (ar);
+        return ceil * (r > 0.0f ? 1.0f : -1.0f) * knee (1.0f / ar);
+    }
+
     // One tube stage: bounded even-order bend (k2) then an asymmetric soft clip with
-    // knee hardness 'sharp'. Mirrors the shaper in model/model.py exactly.
-    static inline float shapeStage (float u, float sharp, float asym, float k2) noexcept
+    // knee hardness 'sharp'. Mirrors the shaper in model/model.py exactly (reference version).
+    static inline float shapeStageExact (float u, float sharp, float asym, float k2) noexcept
     {
         const float uu = u * u;
         const float v = u + k2 * uu / std::sqrt (1.0f + uu * uu);
@@ -299,7 +392,7 @@ public:
     }
 
 private:
-    static constexpr size_t kOversampleStages = 2; // 2^2 = 4x
+    size_t osStages = 3;   // set in prepare() from the sample rate
 
     // Smoothed per block; coefficients only recomputed when a value actually moves.
     void updateFilters (int n)
@@ -341,13 +434,14 @@ private:
         Biquad hpf, preShelf, postShelf;   // user EQ
         Biquad hp1, hp2, bump, dip, dc;    // fixed (measured) EQ
         Biquad inter; // interstage coupling cap, runs at the oversampled rate
+        std::array<Biquad, DryPhase::numSecondOrder> dryPhase;   // dry-path phase match
     };
 
     double sr = 48000;
     int channels = 2;
     std::vector<Channel> ch;
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::None> dryDelay { 4096 };
+    std::unique_ptr<juce::dsp::Oversampling<float>> dryOversampler;
     juce::AudioBuffer<float> dryBuf;
     ChannelStrip dryStrip, wetStrip;
 
@@ -365,4 +459,6 @@ private:
     float oddMakeup = 1.0f, oddPowAvg = 0.0f, refPowAvg = 0.0f;
     float lastHpf = -1.0e9f, lastPreHz = -1.0e9f, lastPreDb = -1.0e9f, lastPostHz = -1.0e9f, lastPostDb = -1.0e9f;
     Params params;
+    KneeTable knee1, knee2;   // input stage (fixed), output stage (follows Drive)
+    bool dryStale = true;     // dry filters skipped while the Dry fader is off
 };

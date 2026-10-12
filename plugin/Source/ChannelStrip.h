@@ -2,6 +2,10 @@
 #include <juce_dsp/juce_dsp.h>
 #include "Biquad.h"
 
+#ifndef GLOW_STRIP_OS_MAXQ
+ #define GLOW_STRIP_OS_MAXQ false   // lighter filters: lower latency for the colour stage
+#endif
+
 // Per-path processing for the Dry and Wet signals: 4-band EQ -> compressor -> fader.
 // Everything here is real-time safe: no allocation after prepare(), no locks.
 
@@ -31,11 +35,21 @@ public:
 
     void reset() { for (auto& b : bands) for (auto& f : b) f.reset(); }
 
-    // Coefficients are recomputed per block, only when a setting actually changed.
-    void process (juce::dsp::AudioBlock<float>& block, const EqSettings& s)
+    // Settings glide to their targets (~30 ms) so dragging bands never zippers; coefficients
+    // are recomputed per block only while something is actually moving.
+    void process (juce::dsp::AudioBlock<float>& block, const EqSettings& target)
     {
-        if (! s.on) { wasOn = false; return; }
-        if (! wasOn) { reset(); wasOn = true; }   // start clean when switched in
+        if (! target.on) { wasOn = false; return; }
+        if (! wasOn) { reset(); wasOn = true; cur = target; last.freq[0] = -1.0f; }   // start clean, no glide
+        const float a = std::exp (-(float) block.getNumSamples() / (0.03f * (float) sr));
+        for (int b = 0; b < 4; ++b)
+        {
+            cur.freq[b] = std::exp (a * std::log (cur.freq[b]) + (1.0f - a) * std::log (target.freq[b]));   // glide in octaves
+            cur.gain[b] = a * cur.gain[b] + (1.0f - a) * target.gain[b];
+            cur.q[b] = a * cur.q[b] + (1.0f - a) * target.q[b];
+        }
+        cur.on = target.on; cur.lowShelf = target.lowShelf; cur.highShelf = target.highShelf;
+        const EqSettings& s = cur;
         if (changed (s)) { updateCoefficients (s); last = s; }
 
         const int n = (int) block.getNumSamples();
@@ -112,7 +126,7 @@ private:
     double sr = 48000.0;
     int nch = 2;
     std::array<std::array<Biquad, 4>, kMaxCh> bands;
-    EqSettings last;
+    EqSettings last, cur;
     bool wasOn = false;
 };
 
@@ -140,12 +154,13 @@ public:
     static inline const char* ratioNames[kNumRatios] { "1:1", "2:1", "3:1", "4:1", "6:1", "10:1", "20:1", "NUKE" };
     static inline const char* colourNames[3] { "CLEAN", "DIST 2", "DIST 3" };
 
-    void prepare (double sampleRate, int numChannels)
+    // osRate: rate the distortion colour runs at (the strip oversamples it)
+    void prepare (double sampleRate, int numChannels, double osRate)
     {
         sr = sampleRate;
         nch = juce::jlimit (1, kMaxCh, numChannels);
         for (auto& f : scHpf) { f.setHighPass (100.0, 0.70710678, sr); f.reset(); }
-        for (auto& f : dcBlock) { f.setOnePoleHighPass (5.0, sr); f.reset(); }
+        for (auto& f : dcBlock) { f.setOnePoleHighPass (5.0, osRate); f.reset(); }
         grDb = 0.0f;
         smIn.reset (sr, 0.03); smOut.reset (sr, 0.03);
         first = true;
@@ -159,7 +174,9 @@ public:
         env = 0.0f;
     }
 
-    void process (juce::dsp::AudioBlock<float>& block, const CompSettings& s)
+    // Step 1 (base rate): input gain + gain reduction. The distortion colour (step 2) runs
+    // oversampled in the strip, then step 3 applies the Output gain.
+    void processGain (juce::dsp::AudioBlock<float>& block, const CompSettings& s)
     {
         if (! s.on) { meterGr.store (0.0f); wasOn = false; return; }
         if (! wasOn) { reset(); wasOn = true; first = true; }
@@ -186,7 +203,6 @@ public:
         for (int i = 0; i < n; ++i)
         {
             const float gIn = smIn.getNextValue();
-            const float gOut = smOut.getNextValue();
 
             // stereo-linked detector (peak of all channels, optionally high-passed)
             float det = 0.0f;
@@ -218,13 +234,37 @@ public:
             const float g = juce::Decibels::decibelsToGain (grDb) * gIn;
 
             for (int c = 0; c < ch; ++c)
-            {
-                float y = block.getSample (c, i) * g;
-                y = colourise (y, s.colour, dcBlock[(size_t) c]);
-                block.setSample (c, i, y * gOut);
-            }
+                block.setSample (c, i, block.getSample (c, i) * g);
         }
         meterGr.store (minGain);
+    }
+
+    // Step 2 (oversampled): distortion colour
+    void processColour (juce::dsp::AudioBlock<float>& up, const CompSettings& s)
+    {
+        if (! s.on || s.colour == 0) return;
+        const int ch = juce::jmin ((int) up.getNumChannels(), nch);
+        for (int c = 0; c < ch; ++c)
+        {
+            auto* x = up.getChannelPointer ((size_t) c);
+            for (size_t i = 0; i < up.getNumSamples(); ++i)
+                x[i] = colourise (x[i], s.colour, dcBlock[(size_t) c]);
+        }
+    }
+
+    // Step 3 (base rate): Output gain
+    void processOutput (juce::dsp::AudioBlock<float>& block, const CompSettings& s)
+    {
+        if (! s.on) return;
+        const int n = (int) block.getNumSamples();
+        const int ch = juce::jmin ((int) block.getNumChannels(), nch);
+        for (int c = 0; c < ch; ++c)
+        {
+            auto* x = block.getChannelPointer ((size_t) c);
+            auto g = smOut;
+            for (int i = 0; i < n; ++i) x[i] *= g.getNextValue();
+        }
+        smOut.skip (n);
     }
 
     float getGainReductionDb() const { return meterGr.load(); }
@@ -273,15 +313,24 @@ public:
     };
     static constexpr float kOffDb = -60.0f;
 
-    void prepare (double sampleRate, int numChannels)
+    void prepare (double sampleRate, int numChannels, int maxBlock)
     {
+        // The comp's distortion colour runs 4x oversampled. The oversampler runs on every block
+        // (even with the comp off) so the strip's latency never changes and Dry/Wet stay aligned.
+        const size_t stages = sampleRate < 60000.0 ? 2 : 1;   // ~192 kHz for the colour stage
+        os = std::make_unique<juce::dsp::Oversampling<float>> ((size_t) juce::jmax (1, numChannels), stages,
+                 juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, GLOW_STRIP_OS_MAXQ, true);
+        os->initProcessing ((size_t) maxBlock);
         eq.prepare (sampleRate, numChannels);
-        comp.prepare (sampleRate, numChannels);
+        comp.prepare (sampleRate, numChannels, sampleRate * (double) os->getOversamplingFactor());
         smLevel.reset (sampleRate, 0.05);
         first = true;
+        stale = true;
     }
 
-    void reset() { eq.reset(); comp.reset(); }
+    void reset() { eq.reset(); comp.reset(); if (os) os->reset(); }
+
+    int getLatencySamples() const { return os ? (int) std::round (os->getLatencyInSamples()) : 0; }
 
     void process (juce::dsp::AudioBlock<float>& block, const Settings& s)
     {
@@ -293,11 +342,17 @@ public:
         if (! smLevel.isSmoothing() && target <= 0.0f)   // fully muted
         {
             block.clear();
+            stale = true;
             return;
         }
+        if (stale) { reset(); stale = false; }   // coming back on: start from a clean state
 
         eq.process (block, s.eq);
-        comp.process (block, s.comp);
+        comp.processGain (block, s.comp);
+        auto up = os->processSamplesUp (block);
+        comp.processColour (up, s.comp);
+        os->processSamplesDown (block);
+        comp.processOutput (block, s.comp);
 
         const int n = (int) block.getNumSamples();
         float peak = 0.0f;
@@ -313,6 +368,9 @@ public:
         while (peak > prev && ! meterPeak.compare_exchange_weak (prev, peak)) {}
     }
 
+    // true when the fader is at Off and not moving (the path outputs silence)
+    bool isMutedSteady() const { return ! first && ! smLevel.isSmoothing() && smLevel.getTargetValue() <= 0.0f; }
+
     // UI thread: returns the peak since the last call and clears it
     float takePeak() { return meterPeak.exchange (0.0f); }
     float getGainReductionDb() const { return comp.getGainReductionDb(); }
@@ -320,6 +378,8 @@ public:
 private:
     FourBandEQ eq;
     Compressor comp;
+    std::unique_ptr<juce::dsp::Oversampling<float>> os;
+    bool stale = true;
     juce::SmoothedValue<float> smLevel;
     bool first = true;
     std::atomic<float> meterPeak { 0.0f };
