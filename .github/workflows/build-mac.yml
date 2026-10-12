@@ -9,6 +9,11 @@ on:
 permissions:
   contents: write   # lets the workflow publish the Releases page
 
+# only the newest push builds/publishes (an older run would try to tag a stale commit)
+concurrency:
+  group: build-mac
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: macos-14   # Apple Silicon runner; the build itself is universal (arm64 + x86_64)

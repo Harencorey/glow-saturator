@@ -32,19 +32,23 @@ jobs:
             [ -z "$RUN" ] && continue
             TAG="v0.1.$N"
             if gh release view "$TAG" >/dev/null 2>&1; then echo "$TAG exists, skipping"; continue; fi
+            git push origin ":refs/tags/$TAG" 2>/dev/null || true   # clear a tag left by an earlier attempt
             SHA=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN" --jq .head_sha)
             rm -rf dl && mkdir dl
             gh run download "$RUN" -n Glow-macOS -D dl
             ls -la dl
             {
-              echo "**Glow 0.1.$N**, built from ${SHA::7}. ${LABEL}"
+              echo "**Glow 0.1.$N**, built from [${SHA::7}](https://github.com/$GITHUB_REPOSITORY/tree/$SHA) (source code for this version). ${LABEL}"
               echo
               echo "### What changed"
               git log -1 --format=%B "$SHA" | grep -v -E '^(Co-Authored-By|Claude-Session):'
               echo
               echo "**Install:** download **Glow-Installer.pkg** and double-click it. Installing any version replaces whatever Glow you have."
             } > notes.md
-            # tags were pushed separately (a workflow token can't tag commits with older workflow files)
+            # A workflow token can't tag old commits (their workflow files differ), so the tag goes on
+            # this commit; the release holds that version's exact build files and links its source.
+            git tag -f "$TAG" "$GITHUB_SHA"
+            git push -f origin "refs/tags/$TAG"
             gh release create "$TAG" dl/* --verify-tag --latest=false --title "Glow 0.1.$N" --notes-file notes.md
             gh release edit "$TAG" --draft=false
           done <<'LIST'
