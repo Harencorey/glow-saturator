@@ -85,6 +85,8 @@ int main (int argc, char** argv)
         else if (key == "peqMF")   p.preEq.freq[1] = v;
         else if (key == "peqMG")   p.preEq.gain[1] = v;
         else if (key == "peqMQ")   p.preEq.q[1] = v;
+        else if (key == "peqLQ")   p.preEq.q[0] = v;
+        else if (key == "peqHQ")   p.preEq.q[3] = v;
         else if (key == "peqHF")   p.preEq.freq[3] = v;
         else if (key == "peqHG")   p.preEq.gain[3] = v;
         else if (key == "block")   block = juce::jmax (1, (int) v);

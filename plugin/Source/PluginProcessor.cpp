@@ -22,7 +22,7 @@ GlowProcessor::GlowProcessor()
     pEnvAmt = apvts.getRawParameterValue ("envAmount");
     pEnvSpeed = apvts.getRawParameterValue ("envSpeed");
     for (auto id : { "preEqOn", "preEqLink", "preEqFreq1", "preEqGain1", "preEqLowShelf", "preEqFreq2", "preEqGain2",
-                     "preEqQ2", "preEqFreq4", "preEqGain4", "preEqHighShelf", "preEqBand1On", "preEqBand2On", "preEqBand4On" })
+                     "preEqQ2", "preEqFreq4", "preEqGain4", "preEqHighShelf", "preEqQ1", "preEqQ4", "preEqBand1On", "preEqBand2On", "preEqBand4On" })
         preEqP[id] = apvts.getRawParameterValue (id);
     dryParams.bind (apvts, "dry");
     wetParams.bind (apvts, "wet");
@@ -155,7 +155,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
     {
         NormalisableRange<float> qr (0.1f, 10.0f, 0.001f);
         qr.setSkewForCentre (1.0f);
-        addFloat (l, "preEqQ2", "Pre EQ Mid Q", qr, 0.7f, [] (float v, int) { return String (v, 2); });
+        auto qt = [] (float v, int) { return String (v, 2); };
+        addFloat (l, "preEqQ2", "Pre EQ Mid Q", qr, 0.7f, qt);
+        // Low/High Q: bell width, or as a shelf the resonance at the corner (0.71 = plain shelf,
+        // higher = a bump/dip at the turnover like a classic passive shelf)
+        addFloat (l, "preEqQ1", "Pre EQ Low Q", qr, 0.7f, qt);
+        addFloat (l, "preEqQ4", "Pre EQ High Q", qr, 0.7f, qt);
     }
     addFloat (l, "preEqFreq4", "Pre EQ High Freq", freqRange (1000.0f, 20000.0f, 5000.0f), 6000.0f, hz);
     addFloat (l, "preEqGain4", "Pre EQ High Gain", { -15.0f, 15.0f, 0.01f }, 0.0f, db);
@@ -294,10 +299,10 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
         auto v = [this] (const char* id) { return preEqP[id]->load(); };
         auto& e = p.preEq;
         e.on = v ("preEqOn") > 0.5f;
-        e.freq[0] = v ("preEqFreq1"); e.gain[0] = v ("preEqGain1"); e.q[0] = 0.7f;
+        e.freq[0] = v ("preEqFreq1"); e.gain[0] = v ("preEqGain1"); e.q[0] = v ("preEqQ1");
         e.freq[1] = v ("preEqFreq2"); e.gain[1] = v ("preEqGain2"); e.q[1] = v ("preEqQ2");
         e.freq[2] = 2500.0f;          e.gain[2] = 0.0f;              e.q[2] = 1.0f;   // unused band
-        e.freq[3] = v ("preEqFreq4"); e.gain[3] = v ("preEqGain4"); e.q[3] = 0.7f;
+        e.freq[3] = v ("preEqFreq4"); e.gain[3] = v ("preEqGain4"); e.q[3] = v ("preEqQ4");
         e.lowShelf = v ("preEqLowShelf") > 0.5f;
         e.highShelf = v ("preEqHighShelf") > 0.5f;
         e.bandOn[0] = v ("preEqBand1On") > 0.5f;

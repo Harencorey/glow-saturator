@@ -45,7 +45,15 @@ private:
     ModuleIcon preEqIcon { ModuleIcon::Kind::eq }; // expanded pre-saturation EQ
     std::atomic<float>* preEqOnP = nullptr, * envAmtP = nullptr;
     float shownModDrive = -1.0f;
-    void paintOverChildren (juce::Graphics&) override;
+    // Envelope-follower dot on the Drive ring. Its own click-through layer over the Drive knob
+    // (not paintOverChildren), so hover tooltips are always drawn on top of it.
+    struct ModDotLayer : public juce::Component
+    {
+        std::function<void (juce::Graphics&)> draw;
+        ModDotLayer() { setInterceptsMouseClicks (false, false); }
+        void paint (juce::Graphics& g) override { if (draw) draw (g); }
+    } modDot;
+    void paintModDot (juce::Graphics&);
     Knob hpf, preFreq, preGain;
     Knob postFreq, postGain, output;
     juce::TextButton linkButton { "LINK" };

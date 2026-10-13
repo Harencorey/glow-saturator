@@ -611,6 +611,7 @@ public:
             const juce::String n (slot[b]);
             freq[b].setup (*this, s, "preEqFreq" + n, "FREQ", defF[b], 10.0f);
             gain[b].setup (*this, s, "preEqGain" + n, "GAIN", 0.0, 10.0f);
+            q[b].setup (*this, s, "preEqQ" + n, "Q", 0.7, 10.0f);
             freq[b].tip (juce::String (names[b]) + " band frequency");
             gain[b].tip (juce::String (names[b]) + " band boost or cut, going into the tubes");
             bandLabel[b].setText (names[b], juce::dontSendNotification);
@@ -619,13 +620,16 @@ public:
             bandLabel[b].setColour (juce::Label::textColourId, GlowLookAndFeel::text);
             addAndMakeVisible (bandLabel[b]);
         }
-        q.setup (*this, s, "preEqQ2", "Q", 0.7, 10.0f);
-        q.tip ("MID band width: low Q = broad, high Q = narrow (target a nasal or boxy spot)");
+        q[1].tip ("MID band width: low Q = broad, high Q = narrow (target a nasal or boxy spot)");
+        q[0].tip ("LOW Q. As a bell: width. As a shelf: shape of the corner, 0.71 = smooth shelf, "
+                  "higher = a bump/dip at the turnover (like a passive tube EQ's shelf), lower = gentler slope");
+        q[2].tip ("HIGH Q. As a bell: width. As a shelf: shape of the corner, 0.71 = smooth shelf, "
+                  "higher = a bump/dip at the turnover, lower = gentler slope");
         lowShelf.setup (*this, s, "preEqLowShelf", "SHELF");
         highShelf.setup (*this, s, "preEqHighShelf", "SHELF");
         lowShelf.button.setTooltip ("LOW band: shelf (on) or bell (off)");
         highShelf.button.setTooltip ("HIGH band: shelf (on) or bell (off)");
-        curve.setTooltip ("What goes into the tubes. Drag a point: frequency and gain. Cmd-drag the MID point: Q. "
+        curve.setTooltip ("What goes into the tubes. Drag a point: frequency and gain. Cmd-drag: Q. "
                           "Option-drag: frequency only. Hold Shift while dragging: solo that band. Double-click a point: bypass/re-engage that band. "
                           "Option-double-click: reset its gain.");
     }
@@ -635,8 +639,7 @@ public:
         curve.refresh();
         const char* names[3] { "LOW", "MID", "HIGH" };
         for (int b = 0; b < 3; ++b)
-            showBandOn (bandLabel[b], names[b], bandOn[b], b == 1 ? std::initializer_list<Knob*> { &freq[b], &gain[b], &q }
-                                                                   : std::initializer_list<Knob*> { &freq[b], &gain[b] });
+            showBandOn (bandLabel[b], names[b], bandOn[b], { &freq[b], &gain[b], &q[b] });
     }
 
 protected:
@@ -653,24 +656,15 @@ protected:
             if (b == 2) highShelf.button.setBounds (head.removeFromRight (52).reduced (0, 1));
             bandLabel[b].setBounds (head);
             const int kw = col.getWidth() / 3;
-            if (b == 1)
-            {
-                freq[b].place (col.removeFromLeft (kw), 14);
-                gain[b].place (col.removeFromLeft (kw), 14);
-                q.place (col, 14);
-            }
-            else
-            {
-                col = col.withSizeKeepingCentre (kw * 2, col.getHeight());
-                freq[b].place (col.removeFromLeft (kw), 14);
-                gain[b].place (col, 14);
-            }
+            freq[b].place (col.removeFromLeft (kw), 14);
+            gain[b].place (col.removeFromLeft (kw), 14);
+            q[b].place (col, 14);
         }
     }
 
 private:
     EqCurve curve;
-    Knob freq[3], gain[3], q;
+    Knob freq[3], gain[3], q[3];
     juce::Label bandLabel[3];
     std::atomic<float>* bandOn[3] {};
     ToggleParam lowShelf, highShelf, link;

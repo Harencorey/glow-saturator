@@ -133,6 +133,8 @@ GlowEditor::GlowEditor (GlowProcessor& p) : AudioProcessorEditor (p), proc (p), 
     setLookAndFeel (&lnf);
     auto& s = proc.apvts;
     drive.setup (*this, s, "drive", "DRIVE", 25.0);
+    modDot.draw = [this] (Graphics& g) { paintModDot (g); };
+    addAndMakeVisible (modDot);   // just above the Drive knob, below the tooltip window
     even.setup (*this, s, "even", "EVEN", 50.0);
     odd.setup (*this, s, "odd", "ODD", 50.0);
     density.setup (*this, s, "density", "DENSITY", 50.0);
@@ -335,7 +337,7 @@ void GlowEditor::timerCallback()
     // envelope follower: move the dot on the Drive ring
     {
         const float md = std::abs (envAmtP->load()) > 0.05f ? proc.modulatedDrive() : -1.0f;
-        if (std::abs (md - shownModDrive) > 0.15f) { shownModDrive = md; repaint (drive.slider.getBoundsInParent()); }
+        if (std::abs (md - shownModDrive) > 0.15f) { shownModDrive = md; modDot.repaint(); }
     }
 
     // chain order (icons stack top = first) and mute/solo state (name dims when not heard)
@@ -425,11 +427,12 @@ void GlowEditor::paint (Graphics& g)
 }
 
 // Envelope follower: a bright dot on the Drive ring at the Drive it's currently using.
-void GlowEditor::paintOverChildren (Graphics& g)
+// Drawn in modDot's own coordinates (it covers exactly the Drive knob).
+void GlowEditor::paintModDot (Graphics& g)
 {
     if (shownModDrive < 0.0f || panel != nullptr) return;
     auto& sl = drive.slider;
-    auto r = sl.getBoundsInParent().toFloat().withTrimmedBottom (18.0f).reduced (4.0f);
+    auto r = sl.getLocalBounds().toFloat().withTrimmedBottom (18.0f).reduced (4.0f);
     const float size = jmin (r.getWidth(), r.getHeight());
     r = r.withSizeKeepingCentre (size, size);
     const auto c = r.getCentre();
@@ -513,6 +516,7 @@ void GlowEditor::resized()
         auto driveBox = r.withSizeKeepingCentre (dsz, r.getHeight());
         glowArea = driveBox.withSizeKeepingCentre (dsz + 30, dsz + 30).translated (0, 8);
         drive.place (driveBox);
+        modDot.setBounds (drive.slider.getBounds());
         // envelope follower knobs in the top corners beside Drive
         const int side = jmax (64, (tubeArea.getWidth() - dsz) / 2 - 2);
         envAmount.place (Rectangle<int> (tubeArea.getX() - 6, tubeArea.getY() + 24, side, 108), 14);
