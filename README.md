@@ -42,7 +42,7 @@ A **\*** after the name means you've changed something since loading it.
 | Control | What it does |
 |---|---|
 | **Drive** | Macro control: more of both even and odd harmonics. Partly auto-gained, like BB Tubes. The glow around the knob is a meter: it brightens with how hard the tubes are actually working on the incoming audio (quiet input at low Drive barely lights it, hot input or high Drive makes it bloom) and settles to a faint glow showing the knob setting when nothing's playing. |
-| **Envelope** | Envelope follower: Drive follows the input's dynamics. **+** pushes louder moments harder (hits grit up, quiet parts stay clean); **−** gives quiet parts more drive and loud parts less (steady, even colour). It reacts to the material's own dynamics (relative to its ~3 s average), so it works the same at any track level, up to ±50 Drive. The dot and line on the Drive ring show where it's pushing Drive. Off at 12 o'clock. |
+| **Envelope** | Envelope follower: Drive follows the input's dynamics. **+** pushes louder moments harder (hits grit up, quiet parts stay clean); **−** gives quiet parts more drive and loud parts less (steady, even colour). It reacts to the material's own dynamics (moments rising above its ~3 s average), so it works the same at any track level, up to ±50 Drive. **The Drive knob is the resting point:** with + the follower only ever adds drive above the knob, with − it only takes drive away, and it always comes back to exactly the knob setting, never past it. The dot and line on the Drive ring show where it's pushing Drive. Off at 12 o'clock. |
 | **Speed** | How fast the envelope follows: fast (1 ms attack / 25 ms release) catches individual hits, slow (60 ms / 1.5 s) follows phrases. |
 | **Even** | Scales only the even-symmetric part of each tube stage's curve, so it moves 2nd/4th/6th harmonics without touching the odd ones. 0 % = no even harmonics, 50 % = as measured, 100 % = 3×. |
 | **Odd** | How hard the output stage clips: ±12 dB around where Drive puts it. Symmetric clipping makes the 3rd/5th/7th harmonics. Adaptive auto-gain keeps the loudness steady (within ±0.25 dB on test material). |
@@ -84,9 +84,12 @@ fixed tube-voicing filter fit, unchanged) with HPF, shelves, both EQs, both comp
 44.1/48/96 kHz. A 50/50 parallel sum loses under 0.01 dB. v0.1.8 lost up to 12 dB with the HPF up. During
 switching or automation the worst momentary loss is 0.1 dB.
 
-Trade-off: like any phase-coherent parallel design, the all-passes rotate the *overall* output's phase around
-the frequencies you EQ (the dry path follows the wet path's filters instead of staying untouched). Relative to
-other tracks that's the same kind of shift any minimum-phase EQ makes. A flat band (0 dB) is fully switched out, so it adds nothing.
+Trade-off: phase-locking adds an all-pass to the *whole* output around the frequencies you EQ, which smears the
+low end in time (e.g. ~5-6 ms around a 100 Hz shelf vs ~1 ms for a normal EQ). So Glow only phase-locks when it
+matters: **an EQ is phase-locked only while the other path is audible** (Dry fader up and not muted/soloed out, or
+vice versa). Otherwise it's an ordinary EQ with normal, tight phase, and it crossfades between the two in 50 ms when
+that changes. **Linked pairs** (shelf Link, pre-EQ Link) always use an ordinary EQ plus its exact inverse, which
+cancels completely, phase included (measured 0.00 ms / 0.00 dB), so they need no all-pass at all. A flat band (0 dB) is fully switched out.
 
 ## Signal flow
 

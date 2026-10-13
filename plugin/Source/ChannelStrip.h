@@ -38,7 +38,8 @@ public:
     void snap() { for (auto& st : stages) st.snapNext(); }
 
     // Once per block, before either path is processed. 'allowed' = this path is audible.
-    void plan (const EqSettings& s, bool allowed, int n)
+    // coherent: phase-lock to the other path (it's audible); otherwise ordinary EQ curves
+    void plan (const EqSettings& s, bool allowed, int n, bool coherent = true)
     {
         for (int b = 0; b < 4; ++b)
         {
@@ -50,7 +51,7 @@ public:
                 st.setKind (k);
                 st.snapNext();
             }
-            st.plan (s.on && allowed, s.freq[b], s.gain[b], s.q[b], n);
+            st.plan (s.on && allowed, s.freq[b], s.gain[b], s.q[b], n, coherent);
         }
     }
 
@@ -354,7 +355,7 @@ public:
     bool isActive (const Settings& s) const { return s.levelDb > kOffDb || ! isMutedSteady(); }
 
     // Step 1, once per block for BOTH strips before either is processed: the EQ plans.
-    void planEq (const Settings& s, bool allowed, int n) { eq.plan (s.eq, allowed, n); }
+    void planEq (const Settings& s, bool allowed, int n, bool coherent) { eq.plan (s.eq, allowed, n, coherent); }
 
     // Step 2: the audio. 'other' is the opposite path's strip (for its EQ all-passes).
     void process (juce::dsp::AudioBlock<float>& block, const Settings& s, ChannelStrip& other)

@@ -71,6 +71,7 @@ public:
         float preShelfHz = 5000.0f, preShelfDb = 0.0f;    // pre-saturation high shelf
         float postShelfHz = 5000.0f, postShelfDb = 0.0f;  // post-saturation high shelf
         float outputDb = 0.0f;  // -24..+12 dB
+        bool shelfLink = false; // pre/post shelves linked (post = -pre): ordinary exact-inverse pair
         bool autoGain = false;  // match output loudness to input (before the Output trim)
         float envAmount = 0.0f; // -100..+100 %: envelope follower moves Drive with the input's dynamics
         float envSpeed = 50.0f; // 0..100: slow (follows phrases) .. fast (follows hits)
@@ -227,24 +228,30 @@ public:
 
         // This block's filter plans. Both paths read the same plans, so every filter and its
         // all-pass twin move (and switch in/out) in lockstep.
+        // Phase-locking costs time smear (an all-pass on the whole output), so filters only do it
+        // when the other path is actually audible. Linked pairs never need it: an ordinary EQ
+        // followed by its exact inverse has zero net phase shift by itself.
+        const bool anySoloEarly = params.dry.solo || params.wet.solo;
+        const bool dryHeard = dryStrip.isActive (params.dry) && ! params.dry.mute && (! anySoloEarly || params.dry.solo);
+        const bool wetHeard = wetStrip.isActive (params.wet) && ! params.wet.mute && (! anySoloEarly || params.wet.solo);
         hpfStage.plan (params.hpfHz >= kHpfMinHz - 0.5f, params.hpfHz, 0.0f, 0.70710678f, n);
-        preStage.plan (true, params.preShelfHz, params.preShelfDb, 0.70710678f, n);
-        postStage.plan (true, params.postShelfHz, params.postShelfDb, 0.70710678f, n);
+        preStage.plan (true, params.preShelfHz, params.preShelfDb, 0.70710678f, n, dryHeard && ! params.shelfLink);
+        postStage.plan (true, params.postShelfHz, params.postShelfDb, 0.70710678f, n, dryHeard && ! params.shelfLink);
         // mute/solo (like a console: any solo mutes the un-soloed path; mute always wins)
         const bool anySolo = params.dry.solo || params.wet.solo;
         params.dry.audible = ! params.dry.mute && (! anySolo || params.dry.solo);
         params.wet.audible = ! params.wet.mute && (! anySolo || params.wet.solo);
         // expanded pre-saturation EQ, and (Link) its mirror image after the tubes
-        preEqF.plan (params.preEq, true, n);
+        preEqF.plan (params.preEq, true, n, dryHeard && ! params.preEqLink);
         {
             EqSettings mirror = params.preEq;
             mirror.on = params.preEq.on && params.preEqLink;
             for (auto& gdb : mirror.gain) gdb = -gdb;
-            postEqF.plan (mirror, true, n);
+            postEqF.plan (mirror, true, n, false);   // linked pair: ordinary filters, exact inverse
         }
         const bool dryActive = dryStrip.isActive (params.dry);
-        wetStrip.planEq (params.wet, wetStrip.isActive (params.wet), n);
-        dryStrip.planEq (params.dry, dryActive, n);
+        wetStrip.planEq (params.wet, wetStrip.isActive (params.wet), n, dryHeard);
+        dryStrip.planEq (params.dry, dryActive, n, wetHeard);
 
         // dry path: copy of the input through the same oversampling filters + phase-match all-passes
         auto dry = juce::dsp::AudioBlock<float> (dryBuf).getSubsetChannelBlock (0, (size_t) nch).getSubBlock (0, (size_t) n);
@@ -543,9 +550,10 @@ private:
     }
 
     // Envelope follower: a peak follower on the input (stereo-linked) with attack/release set
-    // by Speed, compared with the material's own ~3 s average level. Moving above that average
-    // adds Drive (positive Amount) or removes it (negative): 4 Drive units per dB at 100 %,
-    // capped at +/-50. Relative to the average, so it works the same whatever the track level.
+    // by Speed, compared with the material's own ~3 s average level. Rising above that average
+    // adds Drive (positive Amount) or takes it away (negative): 4 Drive units per dB at 100 %,
+    // capped at +/-50. The knob is the resting point; relative to the average, so it works the
+    // same whatever the track level.
     void followEnvelope (const juce::dsp::AudioBlock<float>& block, int nch, int n)
     {
         const float sp = juce::jlimit (0.0f, 1.0f, params.envSpeed / 100.0f);
@@ -573,8 +581,12 @@ private:
             const float aAvg = std::exp (-(float) kEnvChunk / (3.0f * (float) sr));
             envAvgDb = envAvgDb < -90.0f ? envDb : aAvg * envAvgDb + (1.0f - aAvg) * envDb;
         }
+        // The Drive knob is the floor (positive Amount) or ceiling (negative): the follower only
+        // pushes away from it on the moments that rise above the material's average, and comes
+        // back to exactly the knob setting, never past it.
+        const float rise = juce::jmax (0.0f, envDb - envAvgDb);
         envOffset = (std::abs (amt) < 0.01f || envAvgDb < -90.0f || envDb < -60.0f) ? 0.0f
-                    : juce::jlimit (-50.0f, 50.0f, amt / 100.0f * 4.0f * (envDb - envAvgDb));
+                    : juce::jlimit (-50.0f, 50.0f, amt / 100.0f * 4.0f * rise);
     }
 
 public:

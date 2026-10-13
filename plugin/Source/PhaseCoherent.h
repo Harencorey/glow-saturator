@@ -41,6 +41,23 @@ namespace Coherent
         return { f.b0, f.b1, f.b2, f.a1, f.a2 };
     }
 
+    // The ordinary (minimum-phase) filter at the full gain: used whenever phase-locking to the
+    // other path isn't needed (it's audibly tighter: e.g. ~1 ms vs ~5 ms of low-end delay for a
+    // 100 Hz shelf). RBJ shelves/bells at +g and -g are exact inverses, phase included.
+    inline Coeffs designFull (Kind k, double fc, double gainDb, double q, double sr)
+    {
+        Biquad f;
+        fc = juce::jlimit (5.0, 0.45 * sr, fc);
+        switch (k)
+        {
+            case Kind::peak:      f.setPeak (fc, gainDb, q, sr); break;
+            case Kind::lowShelf:  f.setLowShelf (fc, gainDb, q, sr); break;
+            case Kind::highShelf: f.setHighShelf (fc, gainDb, q, sr); break;
+            case Kind::highPass:  f.setIdentity(); break;   // the high-pass is always phase-locked
+        }
+        return { f.b0, f.b1, f.b2, f.a1, f.a2 };
+    }
+
     // Magnitude of the full filter in dB (= 2x the prototype), for drawing curves.
     inline double magDb (const Coeffs& c, double freq, double sr)
     {
@@ -65,7 +82,8 @@ namespace Coherent
 
         struct Seg
         {
-            Coeffs c;
+            Coeffs c, cMin;   // phase-locked prototype; ordinary full-gain filter
+            float k0 = 1.0f, k1 = 1.0f;   // 1 = phase-locked, 0 = ordinary; ramps (50 ms) when it changes
             bool active = false, fresh = false;   // fresh: filter starts here, clear its state
             float m0 = 1.0f, m1 = 1.0f;   // crossfade amount: filter in (1) or out (0), ramps when switching
         };
@@ -81,6 +99,7 @@ namespace Coherent
             dE = (float) (kMaxE * segSec / 0.03);         // Q sweep over 30 ms
             dEn = (float) (segSec / 0.03);                // enable ramp 30 ms
             dM = (float) (segSec / 0.02);                 // high-pass crossfade 20 ms
+            dK = (float) (segSec / 0.05);                 // phase-locked <-> ordinary: 50 ms
             snapNext();
         }
 
@@ -92,8 +111,10 @@ namespace Coherent
 
         // Build this block's plan. For the high-pass, 'gainDb' is ignored and 'enabled'
         // means the knob is above Off.
-        void plan (bool enabled, float freq, float gainDb, float q, int n)
+        // coherent: the other path is audible, so phase-lock (else use the ordinary filter)
+        void plan (bool enabled, float freq, float gainDb, float q, int n, bool coherent = true)
         {
+            if (kind == Kind::highPass) coherent = true;
             numSegs = (n + kSeg - 1) / kSeg;
             const double tf = juce::jlimit (5.0, 0.45 * sr, (double) freq);
             const double tq = juce::jmax (0.1, (double) q);
@@ -106,6 +127,7 @@ namespace Coherent
                 snap = false; snapped = true;
                 curF = tf; curQ = tq; curG = tg;
                 active = need; e = 0.0f; en = need ? 1.0f : 0.0f; m = need ? 1.0f : 0.0f;
+                kc = coherent ? 1.0f : 0.0f;
                 dirty = true;
             }
 
@@ -113,6 +135,9 @@ namespace Coherent
             {
                 auto& seg = segs[(size_t) s];
                 seg.fresh = snapped && s == 0;   // jumped to a new setting: start from clean state
+                seg.k0 = kc;
+                kc = coherent ? juce::jmin (1.0f, kc + dK) : juce::jmax (0.0f, kc - dK);
+                seg.k1 = kc;
                 const double pf = curF, pq = curQ, pg = curG;
                 const float pe = e, pen = en;
                 // HPF switching off: glide down to the bottom first, crossfade out down there
@@ -174,10 +199,13 @@ namespace Coherent
                 {
                     if (dirty || seg.fresh || ne (pf, curF) || ne (pq, curQ) || ne (pg, curG) || ne ((double) pe, (double) e) || ne ((double) pen, (double) en))
                     {
-                        coeffs = designHalf (kind, curF, gEff, curQ * std::pow (10.0, (double) e), sr);
+                        const double qEff = curQ * std::pow (10.0, (double) e);
+                        coeffs = designHalf (kind, curF, gEff, qEff, sr);
+                        coeffsMin = designFull (kind, curF, gEff, qEff, sr);
                         dirty = false;
                     }
                     seg.c = coeffs;
+                    seg.cMin = coeffsMin;
                 }
                 else dirty = true;
             }
@@ -211,9 +239,9 @@ namespace Coherent
         double aGlide = 0.98;
         float dE = 0.1f, dEn = 0.03f, dM = 0.03f;
         double curF = 1000.0, curQ = 0.7, curG = 0.0, gEff = 0.0;
-        float e = 0.0f, en = 0.0f, m = 0.0f;
+        float e = 0.0f, en = 0.0f, m = 0.0f, kc = 1.0f, dK = 0.02f;   // kc: phase-locked amount
         bool active = false, snap = true, dirty = true;
-        Coeffs coeffs;
+        Coeffs coeffs, coeffsMin;
     };
 
     //==========================================================================
@@ -221,7 +249,7 @@ namespace Coherent
     class Main
     {
     public:
-        void reset() { for (auto& c : st) { c[0].reset(); c[1].reset(); } }
+        void reset() { for (auto& c : st) for (auto& f : c) f.reset(); }
 
         void process (const Stage& stage, juce::dsp::AudioBlock<float>& block)
         {
@@ -230,28 +258,43 @@ namespace Coherent
             for (int c = 0; c < nch; ++c)
             {
                 auto* x = block.getChannelPointer ((size_t) c);
-                auto& f = st[(size_t) c];
+                auto& f = st[(size_t) c];   // [0],[1]: phase-locked pair   [2]: ordinary filter
                 for (int s = 0; s < stage.segments(); ++s)
                 {
                     const auto& g = stage.seg (s);
                     const int i0 = s * Stage::kSeg, i1 = juce::jmin (n, i0 + Stage::kSeg);
-                    if (! g.active || g.fresh) { f[0].reset(); f[1].reset(); }
+                    if (! g.active || g.fresh) for (auto& b : f) b.reset();
                     if (! g.active) continue;
-                    load (f[0], g.c.b0, g.c.b1, g.c.b2, g.c.a1, g.c.a2);
-                    load (f[1], g.c.b2, g.c.b1, g.c.b0, g.c.a1, g.c.a2);
-                    if (g.m0 >= 1.0f && g.m1 >= 1.0f)
+                    const bool useCoh = g.k0 > 0.0f || g.k1 > 0.0f;
+                    const bool useMin = g.k0 < 1.0f || g.k1 < 1.0f;
+                    if (useCoh)
+                    {
+                        load (f[0], g.c.b0, g.c.b1, g.c.b2, g.c.a1, g.c.a2);
+                        load (f[1], g.c.b2, g.c.b1, g.c.b0, g.c.a1, g.c.a2);
+                    }
+                    else { f[0].reset(); f[1].reset(); }
+                    if (useMin) load (f[2], g.cMin.b0, g.cMin.b1, g.cMin.b2, g.cMin.a1, g.cMin.a2);
+                    else f[2].reset();
+
+                    if (! useMin && g.m0 >= 1.0f && g.m1 >= 1.0f)
                     {
                         for (int i = i0; i < i1; ++i) x[i] = (float) f[1].process (f[0].process ((double) x[i]));
+                        continue;
                     }
-                    else
+                    if (! useCoh && g.m0 >= 1.0f && g.m1 >= 1.0f)
                     {
-                        float mm = g.m0;
-                        const float step = (g.m1 - g.m0) / (float) Stage::kSeg;
-                        for (int i = i0; i < i1; ++i, mm += step)
-                        {
-                            const double v = x[i];
-                            x[i] = (float) (v + mm * (f[1].process (f[0].process (v)) - v));
-                        }
+                        for (int i = i0; i < i1; ++i) x[i] = (float) f[2].process ((double) x[i]);
+                        continue;
+                    }
+                    float mm = g.m0, kk = g.k0;
+                    const float mStep = (g.m1 - g.m0) / (float) Stage::kSeg, kStep = (g.k1 - g.k0) / (float) Stage::kSeg;
+                    for (int i = i0; i < i1; ++i, mm += mStep, kk += kStep)
+                    {
+                        const double v = x[i];
+                        const double yc = useCoh ? f[1].process (f[0].process (v)) : 0.0;
+                        const double ym = useMin ? f[2].process (v) : 0.0;
+                        const double y = useCoh && useMin ? ym + kk * (yc - ym) : (useCoh ? yc : ym);
+                        x[i] = (float) (v + mm * (y - v));
                     }
                 }
             }
@@ -259,10 +302,11 @@ namespace Coherent
 
     private:
         static constexpr int kMaxCh = 2;
-        std::array<std::array<Biquad, 2>, kMaxCh> st;
+        std::array<std::array<Biquad, 3>, kMaxCh> st;
     };
 
-    // Runs a Stage's matching all-pass on the OTHER path.
+    // Runs a Stage's matching all-pass on the OTHER path (only while the stage is phase-locked;
+    // an ordinary filter has no all-pass twin, so then this is a straight wire).
     class Allpass
     {
     public:
@@ -280,21 +324,21 @@ namespace Coherent
                 {
                     const auto& g = stage.seg (s);
                     const int i0 = s * Stage::kSeg, i1 = juce::jmin (n, i0 + Stage::kSeg);
-                    if (! g.active || g.fresh) f.reset();
-                    if (! g.active) continue;
+                    if (! g.active || g.fresh || (g.k0 <= 0.0f && g.k1 <= 0.0f)) f.reset();
+                    if (! g.active || (g.k0 <= 0.0f && g.k1 <= 0.0f)) continue;
                     load (f, g.c.a2, g.c.a1, 1.0, g.c.a1, g.c.a2);
-                    if (g.m0 >= 1.0f && g.m1 >= 1.0f)
+                    if (g.m0 >= 1.0f && g.m1 >= 1.0f && g.k0 >= 1.0f && g.k1 >= 1.0f)
                     {
                         for (int i = i0; i < i1; ++i) x[i] = (float) f.process ((double) x[i]);
                     }
                     else
                     {
-                        float mm = g.m0;
-                        const float step = (g.m1 - g.m0) / (float) Stage::kSeg;
-                        for (int i = i0; i < i1; ++i, mm += step)
+                        float mm = g.m0, kk = g.k0;
+                        const float mStep = (g.m1 - g.m0) / (float) Stage::kSeg, kStep = (g.k1 - g.k0) / (float) Stage::kSeg;
+                        for (int i = i0; i < i1; ++i, mm += mStep, kk += kStep)
                         {
                             const double v = x[i];
-                            x[i] = (float) (v + mm * (f.process (v) - v));
+                            x[i] = (float) (v + mm * kk * (f.process (v) - v));
                         }
                     }
                 }

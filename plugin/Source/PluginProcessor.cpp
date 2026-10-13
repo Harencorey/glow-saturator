@@ -273,6 +273,7 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     const bool link = pLink->load() > 0.5f;
     p.postShelfHz = link ? p.preShelfHz : pPostHz->load();
     p.postShelfDb = link ? -p.preShelfDb : pPostDb->load();
+    p.shelfLink = link;
     p.outputDb = pOutput->load();
     p.autoGain = pAuto->load() > 0.5f;
     p.envAmount = pEnvAmt->load();

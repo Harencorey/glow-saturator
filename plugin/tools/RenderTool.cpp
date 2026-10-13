@@ -74,6 +74,7 @@ int main (int argc, char** argv)
         }
         else if (key == "out")     p.outputDb = v;
         else if (key == "auto")    p.autoGain = v > 0.5f;
+        else if (key == "link")    p.shelfLink = v > 0.5f;   // (also set postHz/postDb to mirror pre)
         else if (key == "env")     p.envAmount = v;
         else if (key == "envSpeed") p.envSpeed = v;
         else if (key == "peq")     p.preEq.on = v > 0.5f;
