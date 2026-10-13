@@ -5,24 +5,21 @@ GlowProcessor::GlowProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "GLOW", createLayout())
+      apvts (*this, &undoManager, "GLOW", createLayout())
 {
     pDrive = apvts.getRawParameterValue ("drive");
     pEven = apvts.getRawParameterValue ("even");
     pOdd = apvts.getRawParameterValue ("odd");
     pDensity = apvts.getRawParameterValue ("density");
     pHpf = apvts.getRawParameterValue ("hpf");
-    pPreHz = apvts.getRawParameterValue ("preShelfFreq");
-    pPreDb = apvts.getRawParameterValue ("preShelfGain");
-    pPostHz = apvts.getRawParameterValue ("postShelfFreq");
-    pPostDb = apvts.getRawParameterValue ("postShelfGain");
-    pLink = apvts.getRawParameterValue ("shelfLink");
+    pHpf24 = apvts.getRawParameterValue ("hpfSlope");
+    pKeepLows = apvts.getRawParameterValue ("keepLows");
     pOutput = apvts.getRawParameterValue ("output");
     pAuto = apvts.getRawParameterValue ("autoGain");
     pEnvAmt = apvts.getRawParameterValue ("envAmount");
     pEnvSpeed = apvts.getRawParameterValue ("envSpeed");
-    for (auto id : { "preEqOn", "preEqLink", "preEqFreq1", "preEqGain1", "preEqLowShelf", "preEqFreq2", "preEqGain2",
-                     "preEqQ2", "preEqFreq4", "preEqGain4", "preEqHighShelf", "preEqQ1", "preEqQ4", "preEqBand1On", "preEqBand2On", "preEqBand4On" })
+    for (auto id : { "preEqOn", "preEqLink", "preEqFreq2", "preEqGain2", "preEqQ2", "preEqFreq4", "preEqGain4", "preEqQ4",
+                     "preEqBand2On", "preEqBand4On" })
         preEqP[id] = apvts.getRawParameterValue (id);
     dryParams.bind (apvts, "dry");
     wetParams.bind (apvts, "wet");
@@ -127,12 +124,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
             });
         addFloat (l, "hpf", "HPF", r, GlowDSP::kHpfOffHz, hpfText);
     }
-    addFloat (l, "preShelfFreq", "Pre Shelf Freq", freqRange (1000.0f, 16000.0f, 5000.0f), 5000.0f, hz);
-    addFloat (l, "preShelfGain", "Pre Shelf Gain", { -12.0f, 12.0f, 0.01f }, 0.0f, db);
-    // post-saturation EQ
-    addFloat (l, "postShelfFreq", "Post Shelf Freq", freqRange (1000.0f, 16000.0f, 5000.0f), 5000.0f, hz);
-    addFloat (l, "postShelfGain", "Post Shelf Gain", { -12.0f, 12.0f, 0.01f }, 0.0f, db);
-    l.add (std::make_unique<AudioParameterBool> (ParameterID { "shelfLink", 1 }, "Shelf Link", false));
+    // HPF slope (24 dB/oct Linkwitz-Riley, or a gentler 12 dB/oct) and Keep lows (what it removes
+    // skips the tubes and comes back clean)
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "hpfSlope", 1 }, "HPF 24 dB", true,
+               AudioParameterBoolAttributes().withStringFromValueFunction ([] (bool v, int) { return v ? String ("24 dB/oct") : String ("12 dB/oct"); })));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "keepLows", 1 }, "Keep Lows", false));
     // output
     addFloat (l, "output", "Output", { -24.0f, 12.0f, 0.01f }, 0.0f, db);
     // keeps the output as loud as the input (slow, K-weighted), so moves don't fool your ears
@@ -144,29 +140,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
     addFloat (l, "envSpeed", "Envelope Speed", { 0.0f, 100.0f, 0.1f }, 50.0f,
               [] (float v, int) { return v < 25.0f ? "Slow " + String (v, 0) : v > 75.0f ? "Fast " + String (v, 0) : String (v, 0); });
 
-    // expanded pre-saturation EQ: low (shelf/bell), mid (bell with Q), high (shelf/bell), + Link
+    // pre-saturation EQ: mid bell + high shelf (the HPF covers the bottom), + Link
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqOn", 1 }, "Pre EQ On", false));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqLink", 1 }, "Pre EQ Link", false));
-    addFloat (l, "preEqFreq1", "Pre EQ Low Freq", freqRange (20.0f, 2000.0f, 150.0f), 100.0f, hz);
-    addFloat (l, "preEqGain1", "Pre EQ Low Gain", { -15.0f, 15.0f, 0.01f }, 0.0f, db);
-    l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqLowShelf", 1 }, "Pre EQ Low Shelf", true));
-    addFloat (l, "preEqFreq2", "Pre EQ Mid Freq", freqRange (100.0f, 10000.0f, 1000.0f), 1000.0f, hz);
+    addFloat (l, "preEqFreq2", "Pre EQ Mid Freq", freqRange (40.0f, 12000.0f, 1000.0f), 1000.0f, hz);
     addFloat (l, "preEqGain2", "Pre EQ Mid Gain", { -15.0f, 15.0f, 0.01f }, 0.0f, db);
     {
         NormalisableRange<float> qr (0.1f, 10.0f, 0.001f);
         qr.setSkewForCentre (1.0f);
         auto qt = [] (float v, int) { return String (v, 2); };
         addFloat (l, "preEqQ2", "Pre EQ Mid Q", qr, 0.7f, qt);
-        // Low/High Q: bell width, or as a shelf the resonance at the corner (0.71 = plain shelf,
-        // higher = a bump/dip at the turnover like a classic passive shelf)
-        addFloat (l, "preEqQ1", "Pre EQ Low Q", qr, 0.7f, qt);
+        // High shelf Q: the shape of the corner (0.71 = plain shelf, higher = a bump/dip at the
+        // turnover like a classic passive shelf). Cmd-drag the H point.
         addFloat (l, "preEqQ4", "Pre EQ High Q", qr, 0.7f, qt);
     }
     addFloat (l, "preEqFreq4", "Pre EQ High Freq", freqRange (1000.0f, 20000.0f, 5000.0f), 6000.0f, hz);
     addFloat (l, "preEqGain4", "Pre EQ High Gain", { -15.0f, 15.0f, 0.01f }, 0.0f, db);
-    l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqHighShelf", 1 }, "Pre EQ High Shelf", true));
     // per-band bypass (double-click a point on the curve)
-    l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqBand1On", 1 }, "Pre EQ Low On", true));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqBand2On", 1 }, "Pre EQ Mid On", true));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqBand4On", 1 }, "Pre EQ High On", true));
 
@@ -283,14 +273,10 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     p.odd = pOdd->load();
     p.density = pDensity->load();
     p.hpfHz = pHpf->load();
-    p.preShelfHz = pPreHz->load();
-    p.preShelfDb = pPreDb->load();
+    p.hpf24 = pHpf24->load() > 0.5f;
+    p.keepLows = pKeepLows->load() > 0.5f;
     // Link: post shelf mirrors the pre shelf (same frequency, opposite gain), so the
     // highs hit the tubes harder/softer but the overall tonal balance stays put
-    const bool link = pLink->load() > 0.5f;
-    p.postShelfHz = link ? p.preShelfHz : pPostHz->load();
-    p.postShelfDb = link ? -p.preShelfDb : pPostDb->load();
-    p.shelfLink = link;
     p.outputDb = pOutput->load();
     p.autoGain = pAuto->load() > 0.5f;
     p.envAmount = pEnvAmt->load();
@@ -299,13 +285,14 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
         auto v = [this] (const char* id) { return preEqP[id]->load(); };
         auto& e = p.preEq;
         e.on = v ("preEqOn") > 0.5f;
-        e.freq[0] = v ("preEqFreq1"); e.gain[0] = v ("preEqGain1"); e.q[0] = v ("preEqQ1");
+        e.freq[0] = 100.0f;           e.gain[0] = 0.0f;              e.q[0] = 0.7f;   // unused (the HPF covers the lows)
         e.freq[1] = v ("preEqFreq2"); e.gain[1] = v ("preEqGain2"); e.q[1] = v ("preEqQ2");
         e.freq[2] = 2500.0f;          e.gain[2] = 0.0f;              e.q[2] = 1.0f;   // unused band
         e.freq[3] = v ("preEqFreq4"); e.gain[3] = v ("preEqGain4"); e.q[3] = v ("preEqQ4");
-        e.lowShelf = v ("preEqLowShelf") > 0.5f;
-        e.highShelf = v ("preEqHighShelf") > 0.5f;
-        e.bandOn[0] = v ("preEqBand1On") > 0.5f;
+        e.lowShelf = false;
+        e.highShelf = true;
+        e.bandOn[0] = false;
+        e.bandOn[2] = false;
         e.bandOn[1] = v ("preEqBand2On") > 0.5f;
         e.bandOn[3] = v ("preEqBand4On") > 0.5f;
         p.preEqLink = v ("preEqLink") > 0.5f;

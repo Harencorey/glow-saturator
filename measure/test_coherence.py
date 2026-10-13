@@ -23,19 +23,20 @@ def tf(x, y, sr):
 
 
 SETTINGS = {
-    "HPF 120 + pre +6@3k + post -4@8k": dict(hpf=120, preHz=3000, preDb=6, postHz=8000, postDb=-4),
-    "pre/post linked +9 / -9 @ 4k": dict(preHz=4000, preDb=9, postHz=4000, postDb=-9),
+    "HPF 120 + pre-EQ mid +6@3k, high -4@8k": dict(hpf=120, peq=1, peqMF=3000, peqMG=6, peqHF=8000, peqHG=-4),
+    "HPF 150 12 dB + Keep lows": dict(hpf=150, hpf24=0, keep=1),
+    "HPF 200 24 dB + Keep lows + linked EQ": dict(hpf=200, keep=1, peq=1, peqLink=1, peqMF=900, peqMG=8, peqHG=-6),
     "wet EQ (LS+4@100, bell+8@300 Q4, HS-6@6k)": dict(wetEq=1, wetF1=100, wetG1=4, wetF2=300, wetG2=8, wetQ2=4, wetF4=6000, wetG4=-6),
     "dry EQ (bell+6@60 Q.5, bell-10@2k Q8)": dict(dryEq=1, dryLS=0, dryF1=60, dryG1=6, dryQ1=0.5, dryF3=2000, dryG3=-10, dryQ3=8),
-    "everything + both comps w/ Mix + colour": dict(hpf=80, preDb=4, postDb=-3, wetEq=1, wetG2=6, wetQ2=2, wetG4=-5,
+    "everything + both comps w/ Mix + colour": dict(hpf=80, keep=1, peq=1, peqHG=4, wetEq=1, wetG2=6, wetQ2=2, wetG4=-5,
                                                    dryEq=1, dryG1=5, dryG3=-8, dryQ3=6, wetComp=1, wetIn=14, wetRatio=5,
                                                    wetColour=1, wetMix=50, dryComp=1, dryIn=10, dryColour=2, dryMix=30),
-    "same, both paths Comp -> EQ": dict(hpf=80, preDb=4, postDb=-3, wetEq=1, wetG2=6, wetQ2=2, wetG4=-5,
+    "same, both paths Comp -> EQ": dict(hpf=80, keep=1, peq=1, peqHG=4, wetEq=1, wetG2=6, wetQ2=2, wetG4=-5,
                                         dryEq=1, dryG1=5, dryG3=-8, dryQ3=6, wetComp=1, wetIn=14, wetRatio=5,
                                         wetColour=1, wetMix=50, dryComp=1, dryIn=10, dryColour=2, dryMix=30,
                                         wetOrder=1, dryOrder=1),
-    "pre-sat EQ (low +5 shelf, mid -8 Q3, high +6)": dict(peq=1, peqLG=5, peqMF=800, peqMG=-8, peqMQ=3, peqHG=6),
-    "pre-sat EQ linked + envelope follower": dict(peq=1, peqLink=1, peqLG=6, peqMF=1500, peqMG=9, peqMQ=1.5, peqHG=-6, env=80, envSpeed=70),
+    "pre-sat EQ (mid -8 Q3, high +6)": dict(peq=1, peqMF=800, peqMG=-8, peqMQ=3, peqHG=6),
+    "pre-sat EQ linked + envelope follower": dict(peq=1, peqLink=1, peqMF=1500, peqMG=9, peqMQ=1.5, peqHG=-6, env=80, envSpeed=70),
     "mixed order (wet Comp -> EQ, dry EQ -> Comp)": dict(wetEq=1, wetG2=8, wetQ2=3, dryEq=1, dryG3=-6, wetComp=1,
                                                        wetIn=12, dryComp=1, dryIn=12, wetOrder=1),
 }

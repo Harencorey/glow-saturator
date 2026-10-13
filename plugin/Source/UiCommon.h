@@ -13,10 +13,26 @@ public:
     juce::Label* createSliderTextBox (juce::Slider&) override;
     void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour&, bool over, bool down) override;
     void drawButtonText (juce::Graphics&, juce::TextButton&, bool over, bool down) override;
+    juce::Font getSliderPopupFont (juce::Slider&) override { return juce::FontOptions (12.0f, juce::Font::bold); }
+    void drawBubble (juce::Graphics&, juce::BubbleComponent&, const juce::Point<float>&, const juce::Rectangle<float>&) override;
 
-    static inline const juce::Colour bg { 0xff1b1714 }, panel { 0xff26201b }, section { 0xff2e2620 },
-        amber { 0xffffa53a }, amberDim { 0xff7a4a1c }, text { 0xffe9dccb }, textDim { 0xff9c8c7a },
-        green { 0xff8fd16a }, red { 0xffe5533d }, yellow { 0xfff2cf4a };
+    // faceplate palette: warm black, amber, cream
+    static inline const juce::Colour bg { 0xff161310 }, panel { 0xff1c1814 }, section { 0xff231e19 },
+        amber { 0xfff0a24a }, amberDim { 0xff6b4a24 }, text { 0xffede3cf }, textDim { 0xff9b917f },
+        well { 0xff0f0d0b }, edge { 0xff3a332b }, lampBg { 0xff23180e },
+        green { 0xff8fb85a }, red { 0xffe5533d }, yellow { 0xfff2cf4a };
+
+    // a lit indicator dot (buttons, the pilot lamp)
+    static void drawLamp (juce::Graphics& g, juce::Point<float> c, float r, bool on)
+    {
+        if (on)
+        {
+            g.setGradientFill (juce::ColourGradient (amber.withAlpha (0.45f), c.x, c.y, amber.withAlpha (0.0f), c.x + r * 3.0f, c.y, true));
+            g.fillEllipse (c.x - r * 3.0f, c.y - r * 3.0f, r * 6.0f, r * 6.0f);
+        }
+        g.setColour (on ? amber.brighter (0.2f) : juce::Colour (0xff3a2a1a));
+        g.fillEllipse (c.x - r, c.y - r, r * 2.0f, r * 2.0f);
+    }
 };
 
 // A labelled rotary knob attached to a parameter.
@@ -31,6 +47,7 @@ struct Knob
     {
         slider.setSliderStyle (juce::Slider::RotaryVerticalDrag);
         slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 76, 18);
+        slider.setPopupDisplayEnabled (false, false, nullptr);
         slider.setRotaryParameters (juce::MathConstants<float>::pi * 1.25f, juce::MathConstants<float>::pi * 2.75f, true);
         slider.setDoubleClickReturnValue (true, resetTo);
         label.setText (name, juce::dontSendNotification);
@@ -49,6 +66,18 @@ struct Knob
         label.setBounds (r.removeFromTop (labelH));
         slider.setBounds (r);
     }
+
+    // faceplate style: knob (+ value text if shown), then its name underneath
+    void placeBelow (juce::Rectangle<int> r, int labelH = 15)
+    {
+        label.setBounds (r.removeFromBottom (labelH));
+        slider.setBounds (r);
+    }
+
+    // no value box: the value pops up while you turn it (and shows in the tooltip host-side)
+    void popupValue() { slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0); slider.setPopupDisplayEnabled (true, true, nullptr); }
+    // 0-10 scale printed around the knob
+    void numbers() { slider.getProperties().set ("numbers", true); }
 };
 
 // A toggle button attached to a bool parameter.

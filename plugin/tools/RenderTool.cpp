@@ -41,10 +41,8 @@ int main (int argc, char** argv)
         else if (key == "odd")     p.odd = v;
         else if (key == "density") p.density = v;
         else if (key == "hpf")     p.hpfHz = v;
-        else if (key == "preHz")   p.preShelfHz = v;
-        else if (key == "preDb")   p.preShelfDb = v;
-        else if (key == "postHz")  p.postShelfHz = v;
-        else if (key == "postDb")  p.postShelfDb = v;
+        else if (key == "hpf24")   p.hpf24 = v > 0.5f;
+        else if (key == "keep")    p.keepLows = v > 0.5f;
         else if (key.startsWith ("dry") || key.startsWith ("wet"))
         {
             auto& st = key.startsWith ("dry") ? p.dry : p.wet;
@@ -75,7 +73,6 @@ int main (int argc, char** argv)
         }
         else if (key == "out")     p.outputDb = v;
         else if (key == "auto")    p.autoGain = v > 0.5f;
-        else if (key == "link")    p.shelfLink = v > 0.5f;   // (also set postHz/postDb to mirror pre)
         else if (key == "env")     p.envAmount = v;
         else if (key == "envSpeed") p.envSpeed = v;
         else if (key == "peq")     p.preEq.on = v > 0.5f;

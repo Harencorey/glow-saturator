@@ -12,6 +12,9 @@
 //     |P|^2  (the full gain, a normal-looking bell/shelf)  x  AP  (all-pass from A(z)).
 // The other path gets that AP: (a2,a1,1)/(1,a1,a2). Same phase, to rounding error.
 // For the high-pass the pair is a Butterworth squared = Linkwitz-Riley 24 dB/oct.
+// The 12 dB/oct high-pass uses a 1st-order high-pass times a matching 1st-order all-pass as
+// the prototype: its pair is the 1st-order magnitude squared (12 dB/oct) with a 2nd-order
+// all-pass phase, so it crossfades in and out the same way the 24 dB one does.
 //
 // Analog equivalent: it's how a Linkwitz-Riley crossover's two halves stay in phase -
 // the "missing" phase gets put on the other path instead of being left as a mismatch.
@@ -21,7 +24,8 @@
 // sample plan, so they stay locked even while things move.
 namespace Coherent
 {
-    enum class Kind { peak, lowShelf, highShelf, highPass };
+    enum class Kind { peak, lowShelf, highShelf, highPass, highPass12 };
+    inline bool isHighPass (Kind k) { return k == Kind::highPass || k == Kind::highPass12; }
 
     struct Coeffs { double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0; };
 
@@ -37,6 +41,14 @@ namespace Coherent
             case Kind::highShelf: f.setHighShelf (fc, 0.5 * gainDb, q, sr); break;
             // LR4: -6 dB at its corner; shifted up so the knob frequency is the -3 dB point
             case Kind::highPass:  f.setHighPass (juce::jmin (0.45 * sr, fc / 1.24650), 0.70710678, sr); break;
+            case Kind::highPass12:
+            {
+                // 1st-order HP (shifted so the knob is the -3 dB point of the squared pair) x the
+                // 1st-order all-pass with the same pole
+                const double kk = std::tan (juce::MathConstants<double>::pi * juce::jmin (0.45 * sr, fc / 1.55377) / sr);
+                const double h0 = 1.0 / (1.0 + kk), h1 = -h0, a = (kk - 1.0) / (kk + 1.0);
+                return { h0 * a, h0 + h1 * a, h1, 2.0 * a, a * a };
+            }
         }
         return { f.b0, f.b1, f.b2, f.a1, f.a2 };
     }
@@ -53,7 +65,8 @@ namespace Coherent
             case Kind::peak:      f.setPeak (fc, gainDb, q, sr); break;
             case Kind::lowShelf:  f.setLowShelf (fc, gainDb, q, sr); break;
             case Kind::highShelf: f.setHighShelf (fc, gainDb, q, sr); break;
-            case Kind::highPass:  f.setIdentity(); break;   // the high-pass is always phase-locked
+            case Kind::highPass:
+            case Kind::highPass12: f.setIdentity(); break;   // the high-pass is always phase-locked
         }
         return { f.b0, f.b1, f.b2, f.a1, f.a2 };
     }
@@ -114,12 +127,12 @@ namespace Coherent
         // coherent: the other path is audible, so phase-lock (else use the ordinary filter)
         void plan (bool enabled, float freq, float gainDb, float q, int n, bool coherent = true)
         {
-            if (kind == Kind::highPass) coherent = true;
+            if (isHighPass (kind)) coherent = true;
             numSegs = (n + kSeg - 1) / kSeg;
             const double tf = juce::jlimit (5.0, 0.45 * sr, (double) freq);
             const double tq = juce::jmax (0.1, (double) q);
-            const double tg = kind == Kind::highPass ? 0.0 : (double) gainDb;
-            const bool need = kind == Kind::highPass ? enabled : (enabled && std::abs (tg) >= 0.01);
+            const double tg = isHighPass (kind) ? 0.0 : (double) gainDb;
+            const bool need = isHighPass (kind) ? enabled : (enabled && std::abs (tg) >= 0.01);
 
             bool snapped = false;
             if (snap)
@@ -141,7 +154,7 @@ namespace Coherent
                 const double pf = curF, pq = curQ, pg = curG;
                 const float pe = e, pen = en;
                 // HPF switching off: glide down to the bottom first, crossfade out down there
-                const double tfe = (kind == Kind::highPass && ! need) ? kHpOffHz : tf;
+                const double tfe = (isHighPass (kind) && ! need) ? kHpOffHz : tf;
                 curF = std::exp (aGlide * std::log (curF) + (1.0 - aGlide) * std::log (tfe));
                 curQ = aGlide * curQ + (1.0 - aGlide) * tq;
                 curG = aGlide * curG + (1.0 - aGlide) * tg;
@@ -149,7 +162,7 @@ namespace Coherent
                 if (std::abs (curF - tfe) < 1.0e-6 * tfe) curF = tfe;
                 if (std::abs (curQ - tq) < 1.0e-6) curQ = tq;
 
-                if (kind == Kind::highPass)
+                if (isHighPass (kind))
                 {
                     // crossfades in/out only at the very bottom of its range (where it's nearly
                     // transparent): switching on, it starts at 10 Hz and glides up to the knob

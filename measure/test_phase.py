@@ -19,7 +19,7 @@ mono = (rng.standard_normal(SR * 2) * 0.25).clip(-1, 1)
 settings = {
     "defaults": {},
     "drive 90 / even 100 / odd 20 / density 100": dict(drive=90, even=100, odd=20, density=100),
-    "hpf + shelves": dict(drive=60, hpf=120, preDb=6, postDb=-4),
+    "hpf + pre-EQ": dict(drive=60, hpf=120, peq=1, peqHG=6, peqMG=-4),
     "dry+wet with EQ + comps": dict(drive=70, dryLevel=-3, dryEq=1, dryG2=5, wetEq=1, wetG3=-4, dryComp=1, wetComp=1,
                                     dryIn=12, wetIn=18, wetRatio=7, wetColour=1, dryColour=2),
 }

@@ -4,6 +4,12 @@
 #include "ModulePanels.h"
 #include "PresetBar.h"
 
+// Main window (1100 x 600), left to right:
+//   INPUT   high-pass (+ Keep lows, slope), then the pre-saturation EQ as a curve (MID bell,
+//           HIGH shelf, the HPF point; Link mirrors it after the tubes)
+//   TUBES   tube window, Even / Density / Odd, Drive
+//   OUTPUT  level + Auto, the envelope follower (a dotted lead shows it moves Drive)
+//   MIX     Dry and Wet faders with their EQ / COMP modules
 class GlowEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
@@ -38,42 +44,60 @@ private:
     void togglePanel (const juce::String& prefix, ModuleIcon::Kind);
     void closePanel();
 
-    GlowProcessor& proc;
-    GlowLookAndFeel lnf;
-    Knob drive, even, odd, density;
-    Knob envAmount, envSpeed;                     // envelope follower (moves Drive with the input)
-    ModuleIcon preEqIcon { ModuleIcon::Kind::eq }; // expanded pre-saturation EQ
-    std::atomic<float>* preEqOnP = nullptr, * envAmtP = nullptr;
-    float shownModDrive = -1.0f;
-    // Envelope-follower dot on the Drive ring. Its own click-through layer over the Drive knob
-    // (not paintOverChildren), so hover tooltips are always drawn on top of it.
-    struct ModDotLayer : public juce::Component
+    // small painted icon button (undo / redo)
+    struct IconButton : public juce::Button
+    {
+        explicit IconButton (bool redoArrow) : juce::Button (redoArrow ? "Redo" : "Undo"), redo (redoArrow) {}
+        void paintButton (juce::Graphics&, bool over, bool down) override;
+        bool redo;
+    };
+
+    // a click-through layer for things drawn over the knobs (envelope dot, the dotted lead)
+    struct Overlay : public juce::Component
     {
         std::function<void (juce::Graphics&)> draw;
-        ModDotLayer() { setInterceptsMouseClicks (false, false); }
+        Overlay() { setInterceptsMouseClicks (false, false); }
         void paint (juce::Graphics& g) override { if (draw) draw (g); }
-    } modDot;
+    };
     void paintModDot (juce::Graphics&);
-    Knob hpf, preFreq, preGain;
-    Knob postFreq, postGain, output;
-    juce::TextButton linkButton { "LINK" };
-    ToggleParam autoGain;            // master auto gain (+ readout of what it's applying)
+    void paintLead (juce::Graphics&);
+
+    GlowProcessor& proc;
+    GlowLookAndFeel lnf;
+
+    // INPUT
+    Knob hpf;
+    ToggleParam keepLows, preEqLink, preEqOn;
+    juce::TextButton slope12 { "12 dB" }, slope24 { "24 dB" };
+    std::unique_ptr<juce::ParameterAttachment> slopeAttach;
+    EqCurve preCurve;
+    // TUBES
+    Knob drive, even, odd, density;
+    // OUTPUT
+    Knob output, envAmount, envSpeed;
+    ToggleParam autoGain;
     juce::Label autoReadout;
     float shownAuto = 1.0e9f;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> linkAttach;
+    // MIX
     Strip dry, wet;
+    // header
     PresetBar presetBar;
+    juce::TextButton abA { "A" }, abB { "B" };
+    IconButton undoButton { false }, redoButton { true };
+
+    Overlay modDot, lead;
+    std::atomic<float>* envAmtP = nullptr;
+    float shownModDrive = -1.0f;
     juce::TooltipWindow tooltips { this, 3000 };   // hover help after ~3 s
-    juce::String preFreqTip, preGainTip, postFreqTip, postGainTip;
 
     std::unique_ptr<ModulePanel> panel;           // the open EQ/COMP panel, if any
     juce::String panelPrefix;
     ModuleIcon::Kind panelKind = ModuleIcon::Kind::eq;
 
-    juce::Rectangle<int> preArea, tubeArea, postArea, mixArea, overlayArea, glowArea;
+    juce::Rectangle<int> inputArea, tubeArea, outputArea, mixArea, overlayArea, glowArea, tubeWindow, cheatArea;
     float lastGlow = -1.0f;
-    bool shownLink = false;   // UI state of Link last applied to the shelf knobs
     float glowLevel = 0.0f;   // 0..1, how hard the tubes are working right now (meter ballistics)
+    juce::Image texture;      // faceplate grain, made once
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GlowEditor)
 };

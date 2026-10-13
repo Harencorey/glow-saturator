@@ -36,7 +36,7 @@ def resp(**kw):
     return out
 
 base = resp()
-for label, kw in [("HPF 160 Hz", dict(hpf=160)), ("pre shelf 4k +6 dB", dict(preHz=4000, preDb=6)),
-                  ("post shelf 8k -6 dB", dict(postHz=8000, postDb=-6))]:
+for label, kw in [("HPF 160 Hz", dict(hpf=160)), ("pre-EQ high shelf 4k +6 dB", dict(peq=1, peqHF=4000, peqHG=6)),
+                  ("pre-EQ mid 1k -6 dB", dict(peq=1, peqMF=1000, peqMG=-6))]:
     r = resp(**kw)
     print(f"{label:22s} " + "  ".join(f"{f}:{r[f] - base[f]:+5.1f}" for f in r))

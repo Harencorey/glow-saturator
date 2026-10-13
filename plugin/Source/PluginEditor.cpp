@@ -5,7 +5,7 @@ using namespace juce;
 //==============================================================================
 GlowLookAndFeel::GlowLookAndFeel()
 {
-    setColour (Slider::textBoxTextColourId, text);
+    setColour (Slider::textBoxTextColourId, textDim);
     setColour (Slider::textBoxOutlineColourId, Colours::transparentBlack);
     setColour (Slider::textBoxBackgroundColourId, Colours::transparentBlack);
     setColour (Label::textColourId, textDim);
@@ -23,44 +23,75 @@ GlowLookAndFeel::GlowLookAndFeel()
     setColour (TextEditor::outlineColourId, textDim.withAlpha (0.5f));
     setColour (TextEditor::focusedOutlineColourId, amber);
     setColour (CaretComponent::caretColourId, amber);
-    setColour (TooltipWindow::backgroundColourId, panel.brighter (0.15f));
+    setColour (TooltipWindow::backgroundColourId, section.brighter (0.15f));
     setColour (TooltipWindow::textColourId, text);
     setColour (TooltipWindow::outlineColourId, amberDim);
+    setColour (BubbleComponent::backgroundColourId, amber);
+    setColour (BubbleComponent::outlineColourId, Colours::transparentBlack);
 }
 
+// Black skirted knob: tick dots (and a printed 0-10 scale on the big ones), a knurled skirt,
+// a glossy cap and a cream pointer line.
 void GlowLookAndFeel::drawRotarySlider (Graphics& g, int x, int y, int w, int h, float pos,
                                         float a0, float a1, Slider& s)
 {
-    auto r = Rectangle<float> ((float) x, (float) y, (float) w, (float) h).reduced (4.0f);
-    const float size = jmin (r.getWidth(), r.getHeight());
-    r = r.withSizeKeepingCentre (size, size);
-    const auto c = r.getCentre();
-    const float rad = size * 0.5f;
+    const auto bounds = Rectangle<float> ((float) x, (float) y, (float) w, (float) h);
+    const float size = jmin (bounds.getWidth(), bounds.getHeight());
+    const bool nums = (bool) s.getProperties().getWithDefault ("numbers", false);
+    const float kd = size * (nums ? 0.66f : 0.80f);   // skirt diameter
+    const float kr = kd * 0.5f;
+    const auto c = bounds.getCentre();
     const float ang = a0 + pos * (a1 - a0);
-    const float track = jmax (2.5f, size * 0.055f);
-    const bool on = s.isEnabled();
+    const float alpha = s.isEnabled() ? 1.0f : 0.4f;
 
-    // value arc; controls that span zero (gains) draw from their 0 position
-    const bool bipolar = s.getMinimum() < 0.0 && s.getMaximum() > 0.0;
-    const float from = bipolar ? a0 + (float) s.valueToProportionOfLength (0.0) * (a1 - a0) : a0;
-    Path bgArc, valArc;
-    bgArc.addCentredArc (c.x, c.y, rad - track, rad - track, 0, a0, a1, true);
-    valArc.addCentredArc (c.x, c.y, rad - track, rad - track, 0, jmin (from, ang), jmax (from, ang), true);
-    g.setColour (Colours::black.withAlpha (0.45f));
-    g.strokePath (bgArc, PathStrokeType (track, PathStrokeType::curved, PathStrokeType::rounded));
-    g.setColour (on ? amber : amberDim.withAlpha (0.5f));
-    g.strokePath (valArc, PathStrokeType (track, PathStrokeType::curved, PathStrokeType::rounded));
+    // scale: 11 dots, plus numbers on the big knobs
+    const float rt = kr + jmax (4.0f, kd * 0.08f);
+    const float dotR = jmax (1.1f, kd * 0.012f);
+    g.setColour (Colour (0xffcfc4ad).withAlpha (0.85f * alpha));
+    for (int i = 0; i <= 10; ++i)
+    {
+        const float a = a0 + (float) i / 10.0f * (a1 - a0);
+        g.fillEllipse (c.x + rt * std::sin (a) - dotR, c.y - rt * std::cos (a) - dotR, dotR * 2.0f, dotR * 2.0f);
+    }
+    if (nums)
+    {
+        const float rn = kr + jmax (11.0f, kd * 0.2f);
+        const float fs = jmax (9.0f, kd * 0.075f);
+        g.setFont (FontOptions (fs, Font::bold));
+        g.setColour (Colour (0xffd9cfbb).withAlpha (alpha));
+        for (int i = 0; i <= 10; ++i)
+        {
+            const float a = a0 + (float) i / 10.0f * (a1 - a0);
+            g.drawText (String (i), Rectangle<float> (c.x + rn * std::sin (a) - 10.0f, c.y - rn * std::cos (a) - fs * 0.55f, 20.0f, fs * 1.1f),
+                        Justification::centred);
+        }
+    }
 
-    const float kr = rad - track * 2.6f;
-    g.setGradientFill (ColourGradient (Colour (0xff4a3f36), c.x, c.y - kr, Colour (0xff1e1915), c.x, c.y + kr, false));
-    g.fillEllipse (c.x - kr, c.y - kr, kr * 2, kr * 2);
-    g.setColour (Colours::black.withAlpha (0.6f));
-    g.drawEllipse (c.x - kr, c.y - kr, kr * 2, kr * 2, 1.2f);
-
+    // shadow, skirt with knurling
+    g.setColour (Colours::black.withAlpha (0.55f * alpha));
+    g.fillEllipse (c.x - kr, c.y - kr + kd * 0.04f, kd, kd);
+    g.setGradientFill (ColourGradient (Colour (0xff2e2a26), c.x - kr * 0.4f, c.y - kr * 0.5f, Colour (0xff0e0d0c), c.x + kr * 0.5f, c.y + kr, true));
+    g.fillEllipse (c.x - kr, c.y - kr, kd, kd);
+    const int ridges = jlimit (24, 72, (int) (kd * 0.6f));
+    for (int i = 0; i < ridges; ++i)
+    {
+        const float a = (float) i / (float) ridges * MathConstants<float>::twoPi;
+        const float sn = std::sin (a), cs = std::cos (a);
+        g.setColour ((i % 2 == 0 ? Colours::black.withAlpha (0.45f) : Colours::white.withAlpha (0.06f)).withMultipliedAlpha (alpha));
+        g.drawLine (c.x + sn * kr * 0.78f, c.y - cs * kr * 0.78f, c.x + sn * kr * 0.99f, c.y - cs * kr * 0.99f, jmax (1.0f, kd * 0.012f));
+    }
+    // cap
+    const float cr = kr * 0.72f;
+    g.setGradientFill (ColourGradient (Colour (0xff5d5852).withMultipliedAlpha (alpha), c.x - cr * 0.35f, c.y - cr * 0.55f,
+                                       Colour (0xff121110), c.x + cr * 0.4f, c.y + cr, true));
+    g.fillEllipse (c.x - cr, c.y - cr, cr * 2.0f, cr * 2.0f);
+    g.setColour (Colours::white.withAlpha (0.12f * alpha));
+    g.drawEllipse (c.x - cr, c.y - cr, cr * 2.0f, cr * 2.0f, 1.0f);
+    // pointer
     Path p;
-    const float pw = jmax (2.0f, kr * 0.09f);
-    p.addRoundedRectangle (-pw * 0.5f, -kr * 0.92f, pw, kr * 0.42f, pw * 0.5f);
-    g.setColour (on ? text : textDim.withAlpha (0.5f));
+    const float pw = jmax (2.0f, cr * 0.09f);
+    p.addRoundedRectangle (-pw * 0.5f, -cr * 0.95f, pw, cr * 0.55f, pw * 0.5f);
+    g.setColour (text.withAlpha (alpha));
     g.fillPath (p, AffineTransform::rotation (ang).translated (c.x, c.y));
 }
 
@@ -72,123 +103,225 @@ void GlowLookAndFeel::drawLinearSlider (Graphics& g, int x, int y, int w, int h,
         LookAndFeel_V4::drawLinearSlider (g, x, y, w, h, pos, 0, 0, style, s);
         return;
     }
-    // console-style fader: groove + cap
+    // console-style fader: dark slot with an amber fill below a silver cap
     const float cx = (float) x + (float) w * 0.5f;
     Rectangle<float> groove (cx - 2.5f, (float) y, 5.0f, (float) h);
-    g.setColour (Colours::black.withAlpha (0.55f));
+    g.setColour (Colour (0xff0a0807));
     g.fillRoundedRectangle (groove, 2.5f);
-    g.setColour (amber.withAlpha (0.5f));
+    g.setGradientFill (ColourGradient (amber, 0.0f, pos, Colour (0xff8a4a1c), 0.0f, (float) (y + h), false));
     g.fillRoundedRectangle (groove.withTop (pos), 2.5f);
 
-    // unity mark
-    const float unityY = (float) y + (float) h * (1.0f - (float) s.valueToProportionOfLength (0.0));
-    g.setColour (textDim.withAlpha (0.7f));
-    g.drawHorizontalLine ((int) unityY, cx + 5.0f, cx + 12.0f);
-
-    Rectangle<float> cap (cx - 13.0f, pos - 8.0f, 26.0f, 16.0f);
-    g.setGradientFill (ColourGradient (Colour (0xff5a4d42), cap.getX(), cap.getY(), Colour (0xff2a231e), cap.getX(), cap.getBottom(), false));
+    Rectangle<float> cap (cx - 9.0f, pos - 14.0f, 18.0f, 28.0f);
+    g.setColour (Colours::black.withAlpha (0.6f));
+    g.fillRoundedRectangle (cap.translated (0.0f, 2.0f), 3.0f);
+    g.setGradientFill (ColourGradient (Colour (0xffece9e2), cap.getX(), cap.getY(), Colour (0xff8f8a82), cap.getX(), cap.getBottom(), false));
     g.fillRoundedRectangle (cap, 3.0f);
-    g.setColour (Colours::black.withAlpha (0.7f));
-    g.drawRoundedRectangle (cap, 3.0f, 1.0f);
-    g.setColour (text);
-    g.drawHorizontalLine ((int) pos, cap.getX() + 3.0f, cap.getRight() - 3.0f);
+    g.setColour (Colour (0xff2a2724));
+    g.fillRect (cap.getX() + 2.0f, pos - 1.0f, cap.getWidth() - 4.0f, 2.0f);
 }
 
 Label* GlowLookAndFeel::createSliderTextBox (Slider& s)
 {
     auto* l = LookAndFeel_V4::createSliderTextBox (s);
-    l->setFont (FontOptions (12.0f));
+    l->setFont (FontOptions (11.0f));
     l->setJustificationType (Justification::centred);
+    l->setColour (Label::textColourId, textDim);
     l->setColour (Label::outlineColourId, Colours::transparentBlack);
-    l->setColour (Label::backgroundColourId, Colours::black.withAlpha (0.25f));
+    l->setColour (Label::backgroundColourId, Colours::transparentBlack);
     l->setColour (Label::outlineWhenEditingColourId, amber);
     l->setColour (TextEditor::outlineColourId, Colours::transparentBlack);
     l->setColour (TextEditor::focusedOutlineColourId, amber);
     return l;
 }
 
+// Buttons: dark well; when on, a warm lit face with an amber lamp (Mute/Solo keep their own colours)
 void GlowLookAndFeel::drawButtonBackground (Graphics& g, Button& b, const Colour&, bool over, bool)
 {
-    auto r = b.getLocalBounds().toFloat().reduced (1.0f);
+    auto r = b.getLocalBounds().toFloat().reduced (0.5f);
     const bool on = b.getToggleState();
-    // buttons can set their own "on" colour (Mute red, Solo yellow); amber otherwise
-    const auto onCol = b.isColourSpecified (TextButton::buttonOnColourId) ? b.findColour (TextButton::buttonOnColourId) : amber;
-    g.setColour (on ? onCol : Colours::black.withAlpha (over ? 0.35f : 0.25f));
-    g.fillRoundedRectangle (r, 4.0f);
-    g.setColour (on ? onCol : textDim.withAlpha (0.6f));
-    g.drawRoundedRectangle (r, 4.0f, 1.0f);
+    if (b.isColourSpecified (TextButton::buttonOnColourId))
+    {
+        const auto onCol = b.findColour (TextButton::buttonOnColourId);
+        g.setColour (on ? onCol : well.brighter (over ? 0.15f : 0.0f));
+        g.fillRoundedRectangle (r, 4.0f);
+        g.setColour (on ? onCol : edge);
+        g.drawRoundedRectangle (r, 4.0f, 1.0f);
+        return;
+    }
+    g.setColour (on ? lampBg.brighter (over ? 0.15f : 0.0f) : well.brighter (over ? 0.15f : 0.0f));
+    g.fillRoundedRectangle (r, 5.0f);
+    g.setColour (on ? amberDim : edge);
+    g.drawRoundedRectangle (r, 5.0f, 1.0f);
 }
 
 void GlowLookAndFeel::drawButtonText (Graphics& g, TextButton& b, bool, bool)
 {
-    g.setColour (b.getToggleState() ? bg : textDim);
-    g.setFont (FontOptions (11.0f, Font::bold));
-    g.drawText (b.getButtonText(), b.getLocalBounds(), Justification::centred);
+    const bool on = b.getToggleState();
+    auto r = b.getLocalBounds().toFloat();
+    if (b.isColourSpecified (TextButton::buttonOnColourId))
+    {
+        g.setColour (on ? bg : textDim);
+        g.setFont (FontOptions (11.0f, Font::bold));
+        g.drawText (b.getButtonText(), r, Justification::centred);
+        return;
+    }
+    const bool lamp = (bool) b.getProperties().getWithDefault ("lamp", false);
+    g.setFont (FontOptions (jmin (12.0f, r.getHeight() * 0.5f), Font::bold).withKerningFactor (0.12f));
+    const float tw = GlyphArrangement::getStringWidth (g.getCurrentFont(), b.getButtonText());
+    float tx = r.getCentreX() - tw * 0.5f;
+    if (lamp)
+    {
+        tx += 6.0f;
+        drawLamp (g, { tx - 9.0f, r.getCentreY() }, 3.0f, on);
+    }
+    g.setColour (on ? amber : textDim);
+    g.drawText (b.getButtonText(), Rectangle<float> (tx, r.getY(), tw + 4.0f, r.getHeight()), Justification::centredLeft);
+}
+
+void GlowLookAndFeel::drawBubble (Graphics& g, BubbleComponent&, const Point<float>&, const Rectangle<float>& body)
+{
+    g.setColour (Colours::black.withAlpha (0.4f));
+    g.fillRoundedRectangle (body.translated (0.0f, 2.0f), 5.0f);
+    g.setColour (amber);
+    g.fillRoundedRectangle (body, 5.0f);
 }
 
 //==============================================================================
-GlowEditor::GlowEditor (GlowProcessor& p) : AudioProcessorEditor (p), proc (p), presetBar (p.presets)
+void GlowEditor::IconButton::paintButton (Graphics& g, bool over, bool)
 {
-    addAndMakeVisible (presetBar);
+    auto r = getLocalBounds().toFloat().reduced (0.5f);
+    g.setColour (GlowLookAndFeel::well.brighter (over ? 0.15f : 0.0f));
+    g.fillRoundedRectangle (r, 5.0f);
+    g.setColour (GlowLookAndFeel::edge);
+    g.drawRoundedRectangle (r, 5.0f, 1.0f);
+    // curved arrow
+    const auto c = r.getCentre();
+    Path p;
+    const float s = 5.0f, d = redo ? 1.0f : -1.0f;
+    p.startNewSubPath (c.x + d * 3.5f, c.y + 4.0f);
+    p.lineTo (c.x - d * 1.5f, c.y + 4.0f);
+    p.quadraticTo (c.x - d * 5.5f, c.y + 4.0f, c.x - d * 5.5f, c.y);
+    p.quadraticTo (c.x - d * 5.5f, c.y - 3.5f, c.x - d * 1.5f, c.y - 3.5f);
+    p.lineTo (c.x + d * 4.5f, c.y - 3.5f);
+    p.startNewSubPath (c.x + d * 2.0f, c.y - 3.5f - s * 0.5f);
+    p.lineTo (c.x + d * 4.5f, c.y - 3.5f);
+    p.lineTo (c.x + d * 2.0f, c.y - 3.5f + s * 0.5f);
+    g.setColour ((isEnabled() ? GlowLookAndFeel::text : GlowLookAndFeel::textDim.withAlpha (0.4f)));
+    g.strokePath (p, PathStrokeType (1.4f, PathStrokeType::curved, PathStrokeType::rounded));
+}
+
+//==============================================================================
+GlowEditor::GlowEditor (GlowProcessor& p)
+    : AudioProcessorEditor (p), proc (p), preCurve (p.apvts, "pre", { 1, 3 }), presetBar (p.presets)
+{
     setLookAndFeel (&lnf);
     auto& s = proc.apvts;
-    drive.setup (*this, s, "drive", "DRIVE", 25.0);
-    modDot.draw = [this] (Graphics& g) { paintModDot (g); };
-    addAndMakeVisible (modDot);   // just above the Drive knob, below the tooltip window
+    addAndMakeVisible (presetBar);
+
+    // ---- INPUT: high-pass, Keep lows, slope; the pre-saturation EQ curve
+    hpf.setup (*this, s, "hpf", "HIGH-PASS", GlowDSP::kHpfOffHz, 10.5f);
+    hpf.slider.setTextBoxStyle (Slider::TextBoxBelow, false, 70, 16);
+    hpf.tip ("HIGH-PASS: cuts lows before the tubes so they don't muddy the saturation. Bottom = Off, then 20 Hz to 1 kHz. "
+             "It also shows as the HP point on the EQ below (drag it left/right).");
+    keepLows.setup (*this, s, "keepLows", "KEEP LOWS");
+    keepLows.button.getProperties().set ("lamp", true);
+    keepLows.button.setTooltip ("KEEP LOWS: everything the high-pass removes skips the tubes and comes back clean, so the low "
+                                "end stays full and solid while only what's above it saturates. Off = a plain cut.");
+    for (auto* b : { &slope12, &slope24 })
+    {
+        b->setClickingTogglesState (false);
+        b->setTooltip ("High-pass slope: 12 dB/oct (gentle) or 24 dB/oct (steep)");
+        addAndMakeVisible (b);
+    }
+    if (auto* sp = s.getParameter ("hpfSlope"))
+    {
+        slopeAttach = std::make_unique<ParameterAttachment> (*sp, [this] (float v)
+        {
+            slope24.setToggleState (v > 0.5f, dontSendNotification);
+            slope12.setToggleState (v <= 0.5f, dontSendNotification);
+        });
+        slopeAttach->sendInitialUpdate();
+        slope12.onClick = [this] { slopeAttach->setValueAsCompleteGesture (0.0f); };
+        slope24.onClick = [this] { slopeAttach->setValueAsCompleteGesture (1.0f); };
+    }
+    preEqLink.setup (*this, s, "preEqLink", "LINK");
+    preEqOn.setup (*this, s, "preEqOn", "ON");
+    for (auto* t : { &preEqLink, &preEqOn }) t->button.getProperties().set ("lamp", true);
+    preEqLink.button.setTooltip ("LINK: the exact opposite of this EQ runs after the tubes (dashed curve). You change what "
+                                 "saturates - push the mids into the tubes, say - while the overall tone stays the same.");
+    preEqOn.button.setTooltip ("Pre-saturation EQ on/off (dragging a point switches it on)");
+    preCurve.names = { "M", "H" };
+    preCurve.fixedHighShelf = true;
+    preCurve.attachHpf (s.getParameter ("hpf"), s.getRawParameterValue ("hpfSlope"), s.getRawParameterValue ("keepLows"),
+                        s.getRawParameterValue ("preEqLink"));
+    preCurve.onSolo = [this] (int band) { proc.setEqSolo (3, band); };
+    preCurve.setTooltip ("What goes into the tubes. M = mid bell, H = high shelf, HP = the high-pass. Drag a point: frequency + gain. "
+                         "Cmd-drag: Q. Option-drag: frequency only. Hold Shift: solo the band. Double-click: bypass the band "
+                         "(the HP point: Off). Option-double-click: gain to 0 dB.");
+    addAndMakeVisible (preCurve);
+
+    // ---- TUBES
+    drive.setup (*this, s, "drive", "DRIVE", 25.0, 15.0f);
     even.setup (*this, s, "even", "EVEN", 50.0);
     odd.setup (*this, s, "odd", "ODD", 50.0);
     density.setup (*this, s, "density", "DENSITY", 50.0);
-    envAmount.setup (*this, s, "envAmount", "ENVELOPE", 0.0, 10.0f);
-    envSpeed.setup (*this, s, "envSpeed", "SPEED", 50.0, 10.0f);
-    for (auto* k : { &envAmount, &envSpeed }) k->slider.setTextBoxStyle (Slider::TextBoxBelow, false, 64, 16);
-    envAmount.tip ("ENVELOPE: Drive follows the input's dynamics. + = louder moments get pushed harder (hits grit up, "
-                   "quiet parts stay clean). - = quiet parts get more drive, loud parts less (steady, even colour). "
-                   "The dot on the Drive ring shows where it's pushing Drive right now.");
-    envSpeed.tip ("SPEED: how fast the envelope follows. Fast = individual hits (drums), slow = phrases and sections.");
-    envAmtP = s.getRawParameterValue ("envAmount");
-    preEqOnP = s.getRawParameterValue ("preEqOn");
-    addAndMakeVisible (preEqIcon);
-    preEqIcon.setTooltip ("Pre-saturation EQ: click to open it, double-click to switch it on or off (lit = on). "
-                          "Shapes what hits the tubes; its LINK undoes it after them.");
-    preEqIcon.onSingleClick = [this] { togglePanel ("pre", ModuleIcon::Kind::eq); };
-    preEqIcon.onDoubleClick = [this] { toggleParam ("preEqOn"); };
-    hpf.setup (*this, s, "hpf", "HIGH-PASS", GlowDSP::kHpfOffHz);
-    preFreq.setup (*this, s, "preShelfFreq", "SHELF FREQ", 5000.0);
-    preGain.setup (*this, s, "preShelfGain", "SHELF GAIN", 0.0);
-    postFreq.setup (*this, s, "postShelfFreq", "SHELF FREQ", 5000.0);
-    postGain.setup (*this, s, "postShelfGain", "SHELF GAIN", 0.0);
-    output.setup (*this, s, "output", "OUTPUT", 0.0);
-
-    linkButton.setClickingTogglesState (true);
-    linkButton.setTooltip ("LINK: the post shelf mirrors the pre shelf at the opposite gain. The highs hit the tubes harder or "
-                           "softer while the overall tone stays about the same.");
+    for (auto* k : { &drive, &even, &odd }) k->numbers();
+    for (auto* k : { &drive, &even, &odd, &density }) k->popupValue();
     drive.tip ("DRIVE: how hard the tubes are pushed, for more of both even and odd harmonics. The glow shows how hard "
                "they're working on the incoming audio.");
     even.tip ("EVEN: 2nd/4th harmonics (warmth, thickness). 50% = as voiced, 0% = none, 100% = 3x.");
     odd.tip ("ODD: 3rd/5th harmonics (edge, grit, clipping). 50% = as voiced; the level is matched for you.");
     density.tip ("DENSITY: how hard the first tube stage is hit. More = lopsided bloom and 'breathing' after loud hits.");
-    hpf.tip ("HIGH-PASS: cuts lows before the tubes (24 dB/oct) so they don't muddy the saturation. Bottom = Off, then 20 Hz to 1 kHz.");
-    preFreqTip = "PRE SHELF frequency: where the high shelf before the tubes starts";
-    preGainTip = "PRE SHELF gain: boost to make the top end saturate more, cut to keep it smoother";
-    postFreqTip = "POST SHELF frequency: where the high shelf after the tubes starts";
-    postGainTip = "POST SHELF gain: brighten or tame the top of the saturated sound";
-    preFreq.tip (preFreqTip); preGain.tip (preGainTip); postFreq.tip (postFreqTip); postGain.tip (postGainTip);
+
+    // ---- OUTPUT + envelope
+    output.setup (*this, s, "output", "LEVEL", 0.0);
+    output.popupValue();
     output.tip ("OUTPUT: final level trim, after Dry and Wet are mixed (and after Auto)");
-    addAndMakeVisible (linkButton);
     autoGain.setup (*this, s, "autoGain", "AUTO");
+    autoGain.button.getProperties().set ("lamp", true);
     autoGain.button.setTooltip ("Auto gain: keeps the output as loud as the input (slow, ~3 s), so Drive/EQ/comp moves "
                                 "don't fool your ears. Output trims on top.");
     autoReadout.setJustificationType (Justification::centred);
-    autoReadout.setFont (FontOptions (10.5f));
+    autoReadout.setFont (FontOptions (11.0f));
     autoReadout.setColour (Label::textColourId, GlowLookAndFeel::textDim);
     addAndMakeVisible (autoReadout);
-    linkAttach = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment> (s, "shelfLink", linkButton);
+    envAmount.setup (*this, s, "envAmount", "AMOUNT", 0.0, 10.0f);
+    envSpeed.setup (*this, s, "envSpeed", "SPEED", 50.0, 10.0f);
+    for (auto* k : { &envAmount, &envSpeed }) k->popupValue();
+    envAmount.tip ("ENVELOPE amount: Drive follows the input's dynamics. + = louder moments get pushed harder (hits grit up, "
+                   "quiet parts stay clean). - = quiet parts get more drive, loud parts less. "
+                   "The dot on the Drive ring shows where it's pushing Drive right now.");
+    envSpeed.tip ("ENVELOPE speed: how fast it follows. Fast = individual hits (drums), slow = phrases and sections.");
+    envAmtP = s.getRawParameterValue ("envAmount");
 
+    // ---- MIX
     setupStrip (dry, "dry", "DRY");
     setupStrip (wet, "wet", "WET");
 
+    // ---- header: A/B, undo/redo
+    for (auto* b : { &abA, &abB })
+    {
+        b->setClickingTogglesState (false);
+        addAndMakeVisible (b);
+    }
+    abA.setTooltip ("A/B: two complete settings to compare. Click B to switch (it starts as a copy of A).");
+    abB.setTooltip (abA.getTooltip());
+    abA.onClick = [this] { proc.switchAB (0); };
+    abB.onClick = [this] { proc.switchAB (1); };
+    undoButton.setTooltip ("Undo");
+    redoButton.setTooltip ("Redo");
+    undoButton.onClick = [this] { proc.undoManager.undo(); };
+    redoButton.onClick = [this] { proc.undoManager.redo(); };
+    addAndMakeVisible (undoButton);
+    addAndMakeVisible (redoButton);
+
+    modDot.draw = [this] (Graphics& g) { paintModDot (g); };
+    lead.draw = [this] (Graphics& g) { paintLead (g); };
+    addAndMakeVisible (lead);
+    addAndMakeVisible (modDot);   // just above the Drive knob, below the tooltip window
+
     sendLookAndFeelChange(); // re-skin value boxes created before the knobs were parented
-    setSize (1140, 460);
+    setSize (1100, 600);
     startTimerHz (30);
 }
 
@@ -204,11 +337,13 @@ void GlowEditor::setupStrip (Strip& st, const String& prefix, const String& name
     st.prefix = prefix;
     st.name = name;
     st.fader.setSliderStyle (Slider::LinearVertical);
-    st.fader.setTextBoxStyle (Slider::TextBoxBelow, false, 64, 18);
+    st.fader.setTextBoxStyle (Slider::NoTextBox, false, 0, 0);
+    st.fader.setPopupDisplayEnabled (true, true, this);
+    st.fader.onValueChange = [this] { repaint (mixArea); };
     st.fader.setDoubleClickReturnValue (true, prefix == "dry" ? ChannelStrip::kOffDb : 0.0);
     st.label.setText (name, dontSendNotification);
     st.label.setJustificationType (Justification::centred);
-    st.label.setFont (FontOptions (12.0f, Font::bold));
+    st.label.setFont (FontOptions (15.0f, Font::bold).withKerningFactor (0.2f));
     st.label.setColour (Label::textColourId, GlowLookAndFeel::text);
     addAndMakeVisible (st.fader);
     addAndMakeVisible (st.label);
@@ -259,9 +394,7 @@ void GlowEditor::togglePanel (const String& prefix, ModuleIcon::Kind kind)
     if (same) return;
 
     const String name = prefix == "dry" ? "DRY" : "WET";
-    if (prefix == "pre")
-        panel = std::make_unique<PreEqPanel> (proc.apvts);
-    else if (kind == ModuleIcon::Kind::eq)
+    if (kind == ModuleIcon::Kind::eq)
         panel = std::make_unique<EqPanel> (proc.apvts, prefix, name);
     else
         panel = std::make_unique<CompPanel> (proc.apvts, prefix, name, [this, prefix]
@@ -271,7 +404,7 @@ void GlowEditor::togglePanel (const String& prefix, ModuleIcon::Kind kind)
     panelKind = kind;
     if (kind == ModuleIcon::Kind::eq)
     {
-        const int path = prefix == "dry" ? 1 : prefix == "wet" ? 2 : 3;
+        const int path = prefix == "dry" ? 1 : 2;
         panel->setSoloHandler ([this, path] (int band) { proc.setEqSolo (path, band); });
     }
     panel->onClose = [this] { MessageManager::callAsync ([sp = Component::SafePointer<GlowEditor> (this)]
@@ -280,12 +413,15 @@ void GlowEditor::togglePanel (const String& prefix, ModuleIcon::Kind kind)
     panel->sendLookAndFeelChange();
     panel->setBounds (overlayArea);
     panel->refresh();
+    lead.repaint();
 }
 
 void GlowEditor::closePanel()
 {
     proc.setEqSolo (0, -1);   // never leave a band soloed
     if (panel != nullptr) { removeChildComponent (panel.get()); panel.reset(); }
+    lead.repaint();
+    modDot.repaint();
 }
 
 void GlowEditor::timerCallback()
@@ -300,28 +436,16 @@ void GlowEditor::timerCallback()
             autoReadout.setText (on ? (a > 0.05f ? "+" : "") + String (a, 1) + " dB" : String(), dontSendNotification);
         }
     }
-    // Link: the PRE shelf becomes the master (relabelled), the POST shelf follows it
-    // automatically, so its own knobs are greyed out and ignored.
-    const bool link = linkButton.getToggleState();
-    if (link != shownLink)
-    {
-        shownLink = link;
-        for (auto* k : { &postFreq, &postGain })
-        {
-            k->slider.setEnabled (! link);
-            k->slider.setAlpha (link ? 0.3f : 1.0f);
-            k->label.setAlpha (link ? 0.3f : 1.0f);
-        }
-        preFreq.label.setText (link ? "LINKED FREQ" : "SHELF FREQ", dontSendNotification);
-        preGain.label.setText (link ? "LINKED GAIN" : "SHELF GAIN", dontSendNotification);
-        for (auto* k : { &preFreq, &preGain })
-            k->label.setColour (Label::textColourId, link ? GlowLookAndFeel::amber : GlowLookAndFeel::textDim);
-        preFreq.tip (link ? "LINKED: sets the frequency of both shelves" : preFreqTip);
-        preGain.tip (link ? "LINKED: boosts (or cuts) the highs going into the tubes, and does the opposite after them" : preGainTip);
-        postFreq.tip (link ? "Following the pre shelf while Link is on" : postFreqTip);
-        postGain.tip (link ? "Following the pre shelf at the opposite gain while Link is on" : postGainTip);
-    }
 
+    // one undo step per gesture: a new transaction whenever no mouse button is held
+    if (! ModifierKeys::currentModifiers.isAnyMouseButtonDown())
+        proc.undoManager.beginNewTransaction();
+    undoButton.setEnabled (proc.undoManager.canUndo());
+    redoButton.setEnabled (proc.undoManager.canRedo());
+    abA.setToggleState (proc.getAB() == 0, dontSendNotification);
+    abB.setToggleState (proc.getAB() == 1, dontSendNotification);
+
+    preCurve.refresh();
     dry.meter.push (proc.takeDryPeak());
     wet.meter.push (proc.takeWetPeak());
     for (auto* st : { &dry, &wet })
@@ -332,12 +456,16 @@ void GlowEditor::timerCallback()
     }
     if (panel != nullptr) panel->refresh();
     presetBar.refresh();
-    preEqIcon.setState (preEqOnP->load() > 0.5f, panel != nullptr && panelPrefix == "pre");
 
-    // envelope follower: move the dot on the Drive ring
+    // envelope follower: move the dot on the Drive ring (the lead lights up while it's in use)
     {
         const float md = std::abs (envAmtP->load()) > 0.05f ? proc.modulatedDrive() : -1.0f;
-        if (std::abs (md - shownModDrive) > 0.15f) { shownModDrive = md; modDot.repaint(); }
+        if (std::abs (md - shownModDrive) > 0.15f)
+        {
+            if ((md < 0.0f) != (shownModDrive < 0.0f)) lead.repaint();
+            shownModDrive = md;
+            modDot.repaint();
+        }
     }
 
     // chain order (icons stack top = first) and mute/solo state (name dims when not heard)
@@ -356,9 +484,9 @@ void GlowEditor::timerCallback()
     }
     if (relayout) resized();
 
-    // Drive glow follows how hard the tubes are actually working (distortion vs the clean
-    // signal, about -54 dB = clean to 0 dB = crushed), with meter-like ballistics:
-    // jumps up on peaks, falls back over ~0.3 s. With no audio it rests at a faint glow
+    // Drive glow + tube window follow how hard the tubes are actually working (distortion vs the
+    // clean signal, about -54 dB = clean to 0 dB = crushed), with meter-like ballistics:
+    // jumps up on peaks, falls back over ~0.3 s. With no audio they rest at a faint glow
     // that just shows the knob setting.
     {
         const float ratio = proc.takeDrivenness();
@@ -367,36 +495,128 @@ void GlowEditor::timerCallback()
         const float target = x * x;
         glowLevel = target > glowLevel ? glowLevel + 0.6f * (target - glowLevel) : glowLevel * 0.88f;
         const float shown = 0.12f * (float) drive.slider.getValue() / 100.0f + 0.88f * glowLevel;
-        if (std::abs (shown - lastGlow) > 0.004f) { lastGlow = shown; repaint (glowArea); }
+        if (std::abs (shown - lastGlow) > 0.004f) { lastGlow = shown; repaint (glowArea); repaint (tubeWindow.expanded (12)); }
     }
 }
 
 void GlowEditor::paint (Graphics& g)
 {
-    g.fillAll (GlowLookAndFeel::bg);
-    auto area = getLocalBounds().reduced (12);
-    g.setColour (GlowLookAndFeel::panel);
-    g.fillRoundedRectangle (area.toFloat(), 10.0f);
-
-    auto header = area.removeFromTop (46).reduced (20, 0);
-    g.setColour (GlowLookAndFeel::text);
-    g.setFont (FontOptions (24.0f, Font::bold));
-    g.drawText ("GLOW", header, Justification::centredLeft);
-    g.setColour (GlowLookAndFeel::textDim);
-    g.setFont (FontOptions (12.0f));
-    g.drawText ("TUBE SATURATOR  //  NORKA DSP", header, Justification::centredRight);
-
-    auto drawSection = [&g] (Rectangle<int> r, const String& name)
+    using L = GlowLookAndFeel;
+    g.fillAll (Colour (0xff0c0a09));
+    const auto face = getLocalBounds().toFloat().reduced (1.0f);
+    g.setGradientFill (ColourGradient (Colour (0xff1e1a16), 0.0f, 0.0f, Colour (0xff13110e), 0.0f, (float) getHeight(), false));
+    g.fillRoundedRectangle (face, 12.0f);
+    if (! texture.isValid())
     {
-        g.setColour (GlowLookAndFeel::section);
-        g.fillRoundedRectangle (r.toFloat(), 8.0f);
-        g.setColour (GlowLookAndFeel::textDim.withAlpha (0.8f));
-        g.setFont (FontOptions (10.5f, Font::bold));
-        g.drawText (name, r.removeFromTop (20).reduced (10, 0), Justification::centredLeft);
+        // faceplate grain: a fine random speckle, made once
+        texture = Image (Image::ARGB, getWidth(), getHeight(), true);
+        Graphics tg (texture);
+        Random rnd (7);
+        for (int i = 0; i < getWidth() * getHeight() / 9; ++i)
+        {
+            tg.setColour (rnd.nextBool() ? Colours::white.withAlpha (0.035f) : Colours::black.withAlpha (0.12f));
+            tg.fillRect (rnd.nextInt (getWidth()), rnd.nextInt (getHeight()), 1, 1);
+        }
+    }
+    g.drawImageAt (texture, 0, 0);
+    g.setColour (Colour (0xff2e2821));
+    g.drawRoundedRectangle (face, 12.0f, 1.0f);
+
+    // header: pilot lamp + wordmark, company on the right
+    L::drawLamp (g, { 34.0f, 31.0f }, 5.0f, true);
+    g.setColour (L::text);
+    g.setFont (FontOptions (30.0f, Font::bold).withKerningFactor (0.3f));
+    g.drawText ("GLOW", 48, 12, 160, 38, Justification::centredLeft);
+    g.setFont (FontOptions (15.0f, Font::bold).withKerningFactor (0.22f));
+    g.drawText ("NORKA DSP", getWidth() - 228, 14, 200, 18, Justification::centredRight);
+    g.setColour (L::textDim);
+    g.setFont (FontOptions (10.5f).withKerningFactor (0.3f));
+    g.drawText ("TUBE SATURATOR", getWidth() - 228, 32, 200, 14, Justification::centredRight);
+
+    auto panelBox = [&g] (Rectangle<int> r)
+    {
+        g.setColour (Colours::black.withAlpha (0.22f));
+        g.fillRoundedRectangle (r.toFloat(), 12.0f);
+        g.setColour (Colour (0xff2a241e));
+        g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 12.0f, 1.0f);
     };
-    drawSection (preArea, "PRE");
-    drawSection (postArea, "POST");
-    drawSection (mixArea, "MIX");
+    auto caption = [&g] (const String& t, Rectangle<int> r, Justification j = Justification::centredLeft, Colour c = L::textDim)
+    {
+        g.setColour (c);
+        g.setFont (FontOptions (11.5f, Font::bold).withKerningFactor (0.28f));
+        g.drawText (t, r, j);
+    };
+    panelBox (inputArea);
+    panelBox (mixArea);
+
+    // INPUT captions, divider, cheat sheet
+    caption ("INPUT", { inputArea.getX() + 12, inputArea.getY() + 8, 120, 14 });
+    g.setColour (Colour (0xff241f1b));
+    g.fillRect (inputArea.getX() + 12, hpf.label.getBottom() + 6, inputArea.getWidth() - 24, 1);
+    caption ("PRE-SAT EQ", { inputArea.getX() + 12, preEqLink.button.getY(), 120, preEqLink.button.getHeight() }, Justification::centredLeft, L::text.withAlpha (0.85f));
+    {
+        const char* hints[6][2] { { "Drag", "freq + gain" }, { "Cmd drag", "Q" }, { "Opt drag", "freq only" },
+                                  { "Shift hold", "solo" }, { "Dbl-click", "bypass" }, { "HP point", "the high-pass" } };
+        auto r = cheatArea;
+        const int colW = r.getWidth() / 2, rowH = r.getHeight() / 3;
+        for (int i = 0; i < 6; ++i)
+        {
+            auto cell = Rectangle<int> (r.getX() + (i % 2) * colW, r.getY() + (i / 2) * rowH, colW, rowH);
+            g.setFont (FontOptions (11.0f, Font::bold));
+            g.setColour (L::text.withAlpha (0.85f));
+            const String k (hints[i][0]);
+            const int kw = (int) GlyphArrangement::getStringWidth (g.getCurrentFont(), k) + 5;
+            g.drawText (k, cell.removeFromLeft (kw), Justification::centredLeft);
+            g.setFont (FontOptions (11.0f));
+            g.setColour (L::textDim.withAlpha (0.8f));
+            g.drawText (hints[i][1], cell, Justification::centredLeft);
+        }
+    }
+
+    // tube window: glows with how hard the tubes are working
+    {
+        const float d = jlimit (0.0f, 1.0f, lastGlow);
+        auto w = tubeWindow.toFloat();
+        const float rr = w.getHeight() * 0.5f;
+        g.setColour (Colour (0xff0a0807));
+        g.fillRoundedRectangle (w, rr);
+        g.saveState();
+        Path clip; clip.addRoundedRectangle (w, rr);
+        g.reduceClipRegion (clip);
+        const auto c = w.getCentre().translated (0.0f, w.getHeight() * 0.1f);
+        ColourGradient fil (Colour (0xffffba68).withAlpha (0.25f + 0.7f * d), c.x, c.y,
+                            Colour (0xfff08232).withAlpha (0.0f), c.x + w.getWidth() * (0.18f + 0.3f * d), c.y, true);
+        g.setGradientFill (fil);
+        g.fillRect (w);
+        g.setColour (Colours::black.withAlpha (0.38f));
+        for (float gx = w.getX() + 6.0f; gx < w.getRight(); gx += 13.0f) g.fillRect (gx, w.getY(), 2.0f, w.getHeight());
+        g.setGradientFill (ColourGradient (Colours::white.withAlpha (0.16f), 0.0f, w.getY() + 2.0f, Colours::white.withAlpha (0.0f), 0.0f, w.getY() + 14.0f, false));
+        g.fillRoundedRectangle (w.reduced (w.getWidth() * 0.08f, 2.0f).withHeight (12.0f), 6.0f);
+        g.restoreState();
+        g.setColour (Colour (0xff4a3d2e));
+        g.drawRoundedRectangle (w, rr, 1.0f);
+        g.setColour (L::textDim.withAlpha (0.75f));
+        g.setFont (FontOptions (9.5f).withKerningFactor (0.24f));
+        auto lr = tubeWindow.translated (0, tubeWindow.getHeight() + 3).withHeight (12).reduced (8, 0);
+        g.drawText ("CLEAN", lr, Justification::centredLeft);
+        g.drawText ("GLOW", lr, Justification::centred);
+        g.drawText ("DRIVEN", lr, Justification::centredRight);
+    }
+
+    // Drive glow behind the knob
+    {
+        const float d = jlimit (0.0f, 1.0f, lastGlow);
+        auto gc = glowArea.toFloat().getCentre();
+        const float gr = (float) glowArea.getWidth() * 0.5f * (0.9f + 0.12f * d);
+        ColourGradient grad (L::amber.withAlpha (0.06f + 0.6f * d), gc.x, gc.y, L::amber.withAlpha (0.0f), gc.x + gr, gc.y, true);
+        g.setGradientFill (grad);
+        g.fillEllipse (glowArea.toFloat());
+    }
+
+    // OUTPUT / ENVELOPE / MIX captions
+    caption ("OUTPUT", { outputArea.getX(), outputArea.getY() + 8, outputArea.getWidth(), 14 }, Justification::centred);
+    caption ("ENVELOPE", { outputArea.getX() - 6, envAmount.slider.getY() - 18, outputArea.getWidth() + 12, 14 }, Justification::centred);
+    caption ("MIX", { mixArea.getX() + 12, mixArea.getY() + 8, 60, 14 });
 
     // fader scales
     g.setFont (FontOptions (9.0f));
@@ -406,24 +626,40 @@ void GlowEditor::paint (Graphics& g)
         for (double db : { 6.0, 0.0, -6.0, -12.0, -24.0, -48.0 })
         {
             const float y = (float) f.getY() + (float) f.getPositionOfValue (db);
-            g.setColour (GlowLookAndFeel::textDim.withAlpha (std::abs (db) < 0.1 ? 0.95f : 0.6f));
-            g.drawText (db > 0.0 ? "+" + String ((int) db) : String ((int) db), f.getX() - 20, (int) y - 6, 18, 12,
+            g.setColour (L::textDim.withAlpha (std::abs (db) < 0.1 ? 0.95f : 0.55f));
+            g.drawText (db > 0.0 ? "+" + String ((int) db) : String ((int) db), f.getX() - 22, (int) y - 6, 18, 12,
                         Justification::centredRight);
         }
     }
 
-    const float d = jlimit (0.0f, 1.0f, lastGlow);   // set by the timer: knob + how driven the signal is
-    auto gc = glowArea.toFloat().getCentre();
-    const float gr = (float) glowArea.getWidth() * 0.5f * (0.9f + 0.12f * d);   // blooms a little when hot
-    ColourGradient grad (GlowLookAndFeel::amber.withAlpha (0.06f + 0.74f * d), gc.x, gc.y,
-                         GlowLookAndFeel::amber.withAlpha (0.0f), gc.x + gr, gc.y, true);
-    g.setGradientFill (grad);
-    g.fillEllipse (glowArea.toFloat());
+    // fader values under each strip
+    g.setFont (FontOptions (11.0f));
+    for (auto* st : { &dry, &wet })
+    {
+        const auto& f = st->fader;
+        const double v = f.getValue();
+        const String t = v <= f.getMinimum() + 0.01 ? String ("Off") : (v > 0.05 ? "+" : "") + String (v, 1) + " dB";
+        g.setColour (L::textDim);
+        g.drawText (t, f.getX() - 26, f.getBottom() + 2, f.getWidth() + 52, 14, Justification::centred);
+    }
 
-    g.setColour (GlowLookAndFeel::textDim.withAlpha (0.7f));
-    g.setFont (FontOptions (10.0f));
-    g.drawText ("v" JucePlugin_VersionString, getLocalBounds().reduced (24, 16).removeFromBottom (14),
-                Justification::bottomRight);
+    // pinstripes along the bottom, version
+    g.setColour (Colour (0xffa8552a).withAlpha (0.8f));
+    g.fillRect (28, getHeight() - 15, getWidth() - 56, 1);
+    g.setColour (L::text.withAlpha (0.2f));
+    g.fillRect (28, getHeight() - 11, getWidth() - 56, 1);
+    g.setColour (L::textDim.withAlpha (0.6f));
+    g.setFont (FontOptions (9.5f));
+    g.drawText ("v" JucePlugin_VersionString, getWidth() - 140, getHeight() - 30, 112, 12, Justification::centredRight);
+}
+
+// geometry of the Drive knob as the look-and-feel draws it
+static void driveGeometry (const Slider& sl, Point<float>& c, float& ringR)
+{
+    auto r = sl.getLocalBounds().toFloat();
+    const float size = jmin (r.getWidth(), r.getHeight());
+    c = r.getCentre();
+    ringR = size * 0.66f * 0.5f + jmax (4.0f, size * 0.66f * 0.08f);   // the tick ring
 }
 
 // Envelope follower: a bright dot on the Drive ring at the Drive it's currently using.
@@ -432,12 +668,8 @@ void GlowEditor::paintModDot (Graphics& g)
 {
     if (shownModDrive < 0.0f || panel != nullptr) return;
     auto& sl = drive.slider;
-    auto r = sl.getLocalBounds().toFloat().withTrimmedBottom (18.0f).reduced (4.0f);
-    const float size = jmin (r.getWidth(), r.getHeight());
-    r = r.withSizeKeepingCentre (size, size);
-    const auto c = r.getCentre();
-    const float track = jmax (2.5f, size * 0.055f);
-    const float rad = size * 0.5f - track;
+    Point<float> c; float rad;
+    driveGeometry (sl, c, rad);
     const auto rp = sl.getRotaryParameters();
     const float a0 = rp.startAngleRadians, a1 = rp.endAngleRadians;
     const float pos = (float) sl.valueToProportionOfLength (jlimit (0.0, 100.0, (double) shownModDrive));
@@ -445,30 +677,64 @@ void GlowEditor::paintModDot (Graphics& g)
     const float knobAng = a0 + (float) sl.valueToProportionOfLength (sl.getValue()) * (a1 - a0);
     Path arc;   // the stretch the envelope is adding/removing
     arc.addCentredArc (c.x, c.y, rad, rad, 0, jmin (ang, knobAng), jmax (ang, knobAng), true);
-    g.setColour (GlowLookAndFeel::text.withAlpha (0.55f));
-    g.strokePath (arc, PathStrokeType (track * 0.45f, PathStrokeType::curved, PathStrokeType::rounded));
+    g.setColour (GlowLookAndFeel::amber.withAlpha (0.7f));
+    g.strokePath (arc, PathStrokeType (3.0f, PathStrokeType::curved, PathStrokeType::rounded));
     const Point<float> pt (c.x + rad * std::sin (ang), c.y - rad * std::cos (ang));
-    g.setColour (GlowLookAndFeel::text);
-    g.fillEllipse (pt.x - track * 0.9f, pt.y - track * 0.9f, track * 1.8f, track * 1.8f);
+    GlowLookAndFeel::drawLamp (g, pt, 4.0f, true);
+}
+
+// Dotted lead from the envelope controls to the Drive ring: "these move Drive".
+void GlowEditor::paintLead (Graphics& g)
+{
+    if (panel != nullptr) return;
+    Point<float> c; float rad;
+    driveGeometry (drive.slider, c, rad);
+    c += drive.slider.getPosition().toFloat();
+    const float a = MathConstants<float>::pi * (121.0f / 180.0f);
+    const Point<float> end (c.x + (rad + 3.0f) * std::sin (a), c.y - (rad + 3.0f) * std::cos (a));
+    const auto amt = envAmount.slider.getBounds().toFloat();
+    const Point<float> start (amt.getX() + 2.0f, amt.getCentreY());
+    Path p;
+    p.startNewSubPath (start);
+    p.cubicTo (start.x - 18.0f, start.y + 70.0f, end.x + 60.0f, end.y + 26.0f, end.x, end.y);
+    const bool active = shownModDrive >= 0.0f;
+    const float dash[] { 2.0f, 5.0f };
+    Path dotted;
+    PathStrokeType (1.5f, PathStrokeType::curved, PathStrokeType::rounded).createDashedStroke (dotted, p, dash, 2);
+    g.setColour (GlowLookAndFeel::amber.withAlpha (active ? 0.85f : 0.4f));
+    g.fillPath (dotted);
+    GlowLookAndFeel::drawLamp (g, start, 2.5f, active);
+    // arrowhead pointing into the ring
+    const auto dir = (end - Point<float> (end.x + 14.0f, end.y + 8.0f));
+    const float len = std::sqrt (dir.x * dir.x + dir.y * dir.y);
+    const Point<float> u (dir.x / len, dir.y / len), nrm (-u.y, u.x);
+    Path head;
+    head.startNewSubPath (end - u * 7.0f + nrm * 4.0f);
+    head.lineTo (end);
+    head.lineTo (end - u * 7.0f - nrm * 4.0f);
+    g.strokePath (head, PathStrokeType (1.5f, PathStrokeType::curved, PathStrokeType::rounded));
 }
 
 void GlowEditor::layoutStrip (Strip& st, Rectangle<int> r)
 {
-    st.label.setBounds (r.removeFromTop (18));
-    auto icons = r.removeFromRight (46);
+    st.label.setBounds (r.removeFromTop (22));
+    r.removeFromTop (4);
+    auto icons = r.removeFromRight (50);
     icons.removeFromTop (4);
     // the icons stack in signal order; the swap button between them flips it
     const bool compFirst = st.compFirst != nullptr && st.compFirst->load() > 0.5f;
     st.shownCompFirst = compFirst;
-    (compFirst ? st.compIcon : st.eqIcon).setBounds (icons.removeFromTop (40).reduced (2));
-    st.swap.setBounds (icons.removeFromTop (16));
-    (compFirst ? st.eqIcon : st.compIcon).setBounds (icons.removeFromTop (40).reduced (2));
+    (compFirst ? st.compIcon : st.eqIcon).setBounds (icons.removeFromTop (44).reduced (2));
+    st.swap.setBounds (icons.removeFromTop (20));
+    (compFirst ? st.eqIcon : st.compIcon).setBounds (icons.removeFromTop (44).reduced (2));
     icons.removeFromTop (10);
     auto ms = icons.removeFromTop (22);
     st.mute.button.setBounds (ms.removeFromLeft (ms.getWidth() / 2).reduced (1, 0));
     st.solo.button.setBounds (ms.reduced (1, 0));
-    auto meterCol = r.removeFromRight (12);
-    r.removeFromLeft (16);   // column for the dB scale
+    auto meterCol = r.removeFromRight (8);
+    r.removeFromRight (2);
+    r.removeFromLeft (20);   // column for the dB scale
+    r.removeFromBottom (16);   // value readout
     st.fader.setBounds (r);
     // meter spans exactly the fader's travel (+6 dB at the top, Off at the bottom)
     const int yTop = st.fader.getY() + (int) st.fader.getPositionOfValue (st.fader.getMaximum());
@@ -478,59 +744,61 @@ void GlowEditor::layoutStrip (Strip& st, Rectangle<int> r)
 
 void GlowEditor::resized()
 {
-    auto area = getLocalBounds().reduced (24);
-    presetBar.setBounds (Rectangle<int> (0, 22, 400, 26).withCentre ({ getWidth() / 2, 35 }));
-    area.removeFromTop (40);
-    area.removeFromBottom (10);
+    // header
+    presetBar.setBounds (Rectangle<int> (0, 0, 400, 28).withCentre ({ getWidth() / 2 - 20, 31 }));
+    abA.setBounds (presetBar.getRight() + 14, 18, 26, 26);
+    abB.setBounds (abA.getRight() + 4, 18, 26, 26);
+    undoButton.setBounds (abB.getRight() + 10, 18, 26, 26);
+    redoButton.setBounds (undoButton.getRight() + 4, 18, 26, 26);
 
-    mixArea = area.removeFromRight (250);
-    area.removeFromRight (10);
-    overlayArea = area;                   // module panels open over Pre / Tubes / Post
-    preArea = area.removeFromLeft (210);
-    postArea = area.removeFromRight (190);
-    tubeArea = area.reduced (12, 0);
+    // columns
+    const int top = 68, h = getHeight() - top - 22;
+    inputArea = { 24, top, 290, h };
+    tubeArea = { inputArea.getRight() + 14, top, 372, h };
+    outputArea = { tubeArea.getRight() + 14, top, 118, h };
+    mixArea = { outputArea.getRight() + 14, top, getWidth() - 24 - (outputArea.getRight() + 14), h };
+    overlayArea = { inputArea.getX(), top, outputArea.getRight() - inputArea.getX(), h };
 
-    {   // PRE: high-pass on top, shelf freq + gain below
-        auto r = preArea.withTrimmedTop (22).reduced (8, 4);
-        auto top = r.removeFromTop (r.getHeight() / 2);
-        hpf.place (top.withSizeKeepingCentre (110, top.getHeight()));
-        preEqIcon.setBounds (preArea.getRight() - 50, preArea.getY() + 4, 44, 38);
-        preFreq.place (r.removeFromLeft (r.getWidth() / 2));
-        preGain.place (r);
+    {   // INPUT: the high-pass up top, then the pre-saturation EQ
+        auto r = inputArea.reduced (12, 0);
+        hpf.placeBelow ({ r.getX() - 2, top + 26, 96, 112 });
+        const int bx = hpf.slider.getRight() + 10;
+        keepLows.button.setBounds (bx, top + 46, 124, 28);
+        slope12.setBounds (bx, top + 84, 58, 22);
+        slope24.setBounds (bx + 62, top + 84, 58, 22);
+        const int eqTop = hpf.label.getBottom() + 16;
+        preEqOn.button.setBounds (r.getRight() - 44, eqTop, 44, 22);
+        preEqLink.button.setBounds (preEqOn.button.getX() - 58, eqTop, 54, 22);
+        preCurve.setBounds (r.getX(), eqTop + 30, r.getWidth(), 176);
+        cheatArea = { r.getX() + 2, preCurve.getBottom() + 8, r.getWidth() - 2, 60 };
     }
-    {   // POST: shelf freq + gain (+ link) on top, output below
-        auto r = postArea.withTrimmedTop (22).reduced (8, 4);
-        auto top = r.removeFromTop (r.getHeight() / 2);
-        linkButton.setBounds (postArea.getRight() - 58, postArea.getY() + 3, 48, 16);
-        postFreq.place (top.removeFromLeft (top.getWidth() / 2));
-        postGain.place (top);
-        output.place (r.withSizeKeepingCentre (100, r.getHeight()));
-        // AUTO gain switch on the OUTPUT label's row (like LINK), what it's applying underneath
-        autoGain.button.setBounds (postArea.getRight() - 58, r.getY(), 48, 16);
-        autoReadout.setBounds (postArea.getRight() - 64, r.getY() + 18, 60, 14);
-    }
-    {   // TUBES: Drive big, Even / Density / Odd underneath
-        auto r = tubeArea;
-        auto bottom = r.removeFromBottom (128);
-        const int dsz = jmin (r.getWidth(), r.getHeight());
-        auto driveBox = r.withSizeKeepingCentre (dsz, r.getHeight());
-        glowArea = driveBox.withSizeKeepingCentre (dsz + 30, dsz + 30).translated (0, 8);
-        drive.place (driveBox);
+    {   // TUBES: tube window, Even / Density / Odd, then Drive
+        const int cx = tubeArea.getCentreX();
+        tubeWindow = { cx - 125, top + 8, 250, 40 };
+        const int rowY = top + 68;
+        even.placeBelow ({ cx - 149, rowY, 93, 108 });
+        density.placeBelow ({ cx - 38, rowY + 10, 76, 91 });
+        odd.placeBelow ({ cx + 56, rowY, 93, 108 });
+        drive.placeBelow ({ cx - 120, rowY + 140, 240, 240 }, 20);
+        glowArea = drive.slider.getBounds().expanded (30);
         modDot.setBounds (drive.slider.getBounds());
-        // envelope follower knobs in the top corners beside Drive
-        const int side = jmax (64, (tubeArea.getWidth() - dsz) / 2 - 2);
-        envAmount.place (Rectangle<int> (tubeArea.getX() - 6, tubeArea.getY() + 24, side, 108), 14);
-        envSpeed.place (Rectangle<int> (tubeArea.getRight() - side + 6, tubeArea.getY() + 24, side, 108), 14);
-        const int w = bottom.getWidth() / 3;
-        even.place (bottom.removeFromLeft (w).reduced (6, 0));
-        density.place (bottom.removeFromLeft (w).reduced (6, 0));
-        odd.place (bottom.reduced (6, 0));
+    }
+    {   // OUTPUT + envelope
+        const int cx = outputArea.getCentreX();
+        output.placeBelow ({ cx - 45, top + 26, 91, 106 });
+        autoGain.button.setBounds (cx - 38, output.label.getBottom() + 12, 76, 26);
+        autoReadout.setBounds (outputArea.getX(), autoGain.button.getBottom() + 3, outputArea.getWidth(), 14);
+        const int ey = drive.slider.getBounds().getCentreY() - 10;   // down and to the right of Drive
+        envAmount.placeBelow ({ cx - 54, ey, 54, 70 });
+        envSpeed.placeBelow ({ cx, ey, 54, 70 });
     }
     {   // MIX: Dry and Wet strips
-        auto r = mixArea.withTrimmedTop (22).reduced (10, 6);
-        layoutStrip (dry, r.removeFromLeft (r.getWidth() / 2).reduced (4, 0));
-        layoutStrip (wet, r.reduced (4, 0));
+        auto r = mixArea.withTrimmedTop (26).reduced (10, 10);
+        layoutStrip (dry, r.removeFromLeft (r.getWidth() / 2).reduced (3, 0));
+        layoutStrip (wet, r.reduced (3, 0));
     }
+    lead.setBounds (getLocalBounds());
+    texture = {};
     if (panel != nullptr) panel->setBounds (overlayArea);
 }
 

@@ -29,30 +29,36 @@ A **\*** after the name means you've changed something since loading it.
 - A preset stores every setting **except Mute and Solo**, so loading one never silences what you're listening to.
 - Loading goes through the host like a knob move (undoable and automatable). The session remembers which preset you were on.
 
+**A / B:** two complete settings to compare. Click **B** and it starts as a copy of A; tweak, then flip back and forth.
+**Undo / Redo** (the arrows): every knob move, click and drag is one undo step.
+
 ## Controls
 
-**Pre** (before the tubes)
+The window, left to right: **INPUT** (high-pass and the pre-saturation EQ), the **tubes**, **OUTPUT** (level, Auto
+and the envelope follower) and **MIX** (the Dry and Wet strips). In the header: presets, **A/B** and **undo/redo**.
+
+**Input** (before the tubes)
 | Control | What it does |
 |---|---|
-| **High-Pass** | 24 dB/oct (Linkwitz-Riley), 20 Hz–1 kHz, −3 dB at the knob frequency. The very bottom of the knob is Off; the first step up is 20 Hz. Keeps lows out of the saturation. |
-| **Shelf Freq / Gain** | High shelf, 1–16 kHz, ±12 dB. Boost it to make the top end hit the tubes harder. |
-| **EQ icon** (top right of PRE) | Click: opens the **pre-saturation EQ**, a 3-band parametric: LOW (shelf/bell, 20 Hz–2 kHz), MID (bell, 100 Hz–10 kHz), HIGH (shelf/bell, 1–20 kHz), ±15 dB, each with Q (0.1–10). On a shelf, Q shapes the corner: 0.71 is a plain shelf, higher adds a bump/dip at the turnover (the classic passive-shelf shape), lower gives a gentler slope. It shapes what hits the tubes. Its **LINK** applies the exact opposite EQ after the tubes, so you change *what saturates* (e.g. push the low mids into the tubes) without changing the overall tone. Measured: linked, it nets to 0.00 dB on clean signal. Double-click the icon to switch it on/off. Same point gestures as the path EQs (Cmd-drag = Q, Option-drag = frequency only, Shift = solo the band, double-click = bypass the band). Phase-locked with the Dry path like every other filter. |
+| **High-Pass** | 20 Hz–1 kHz, −3 dB at the knob frequency. The very bottom of the knob is Off; the first step up is 20 Hz. Keeps lows out of the saturation. It also shows as the **HP** point on the EQ curve below (drag it sideways; double-click it for Off). |
+| **12 dB / 24 dB** | High-pass slope: 12 dB/oct (gentle) or 24 dB/oct (Linkwitz-Riley, steep). Switching glides between the two, no click. |
+| **Keep Lows** | A switch: everything the high-pass removes skips the tubes and comes back **clean, at full level**, so the low end stays full and solid while only what's above it saturates (a clean low-band split, like a parallel crossover). The split is exact: on quiet (clean) signal the output is flat within 0.3 dB vs the HPF off. Off = a plain cut. The dashed line on the curve shows the clean lows. Switching fades over 20 ms. |
+| **Pre-sat EQ** | The curve under the high-pass: what goes into the tubes. **M** = a fully parametric mid bell (40 Hz–12 kHz, ±15 dB, Q 0.1–10), **H** = a high shelf (1–20 kHz, Q shapes the corner: 0.71 plain, higher adds the passive-style bump/dip). The curve includes the high-pass (cut region shaded). **Drag** a point = frequency + gain, **Cmd-drag** = Q, **Option-drag** = frequency only, **hold Shift** = solo the band, **double-click** = bypass the band, Option-double-click = gain to 0 dB. Dragging switches the EQ on. **ON** switches it on/off. |
+| **LINK** | The exact opposite EQ runs after the tubes (the dashed mirror curve), so you change *what saturates* (push the mids into the tubes, say) while the overall tone stays put. Measured: linked, it nets to 0.00 dB on clean signal. **With Link off there is no post EQ**: shape the saturated sound with the Wet strip's EQ instead. |
 
 **Tubes**
 | Control | What it does |
 |---|---|
 | **Drive** | Macro control: more of both even and odd harmonics. Partly auto-gained, like BB Tubes. The glow around the knob is a meter: it brightens with how hard the tubes are actually working on the incoming audio (quiet input at low Drive barely lights it, hot input or high Drive makes it bloom) and settles to a faint glow showing the knob setting when nothing's playing. |
-| **Envelope** | Envelope follower: Drive follows the input's dynamics. **+** pushes louder moments harder (hits grit up, quiet parts stay clean); **−** gives quiet parts more drive and loud parts less (steady, even colour). It reacts to the material's own dynamics (moments rising above its ~3 s average), so it works the same at any track level, up to ±50 Drive. **The Drive knob is the resting point:** with + the follower only ever adds drive above the knob, with − it only takes drive away, and it always comes back to exactly the knob setting, never past it. The dot and line on the Drive ring show where it's pushing Drive. Off at 12 o'clock. |
-| **Speed** | How fast the envelope follows: fast (1 ms attack / 25 ms release) catches individual hits, slow (60 ms / 1.5 s) follows phrases. |
+| **Envelope Amount** | (under OUTPUT; the dotted lead runs to the Drive ring) Envelope follower: Drive follows the input's dynamics. **+** pushes louder moments harder (hits grit up, quiet parts stay clean); **−** gives quiet parts more drive and loud parts less (steady, even colour). It reacts to the material's own dynamics (moments rising above its ~3 s average), so it works the same at any track level, up to ±50 Drive. **The Drive knob is the resting point:** with + the follower only ever adds drive above the knob, with − it only takes drive away, and it always comes back to exactly the knob setting, never past it. The dot and line on the Drive ring show where it's pushing Drive. Off at 12 o'clock. |
+| **Envelope Speed** | How fast the envelope follows: fast (1 ms attack / 25 ms release) catches individual hits, slow (60 ms / 1.5 s) follows phrases. |
 | **Even** | Scales only the even-symmetric part of each tube stage's curve, so it moves 2nd/4th/6th harmonics without touching the odd ones. 0 % = no even harmonics, 50 % = as measured, 100 % = 3×. |
 | **Odd** | How hard the output stage clips: ±12 dB around where Drive puts it. Symmetric clipping makes the 3rd/5th/7th harmonics. Adaptive auto-gain keeps the loudness steady (within ±0.25 dB on test material). |
 | **Density** | How hard the input tube stage is hit. 50 % = matched; higher gives more lopsided bloom and "breathing" after loud hits. |
 
-**Post** (after the tubes)
+**Output**
 | Control | What it does |
 |---|---|
-| **Shelf Freq / Gain** | High shelf, 1–16 kHz, ±12 dB. |
-| **Link** | The post shelf mirrors the pre shelf (same frequency, opposite gain), so the top end saturates harder or softer while the overall tonal balance stays put. While linked, the pre shelf knobs turn amber and read LINKED FREQ / LINKED GAIN (they now set both shelves), and the post shelf knobs grey out. This replaces the old Tone knob. |
 | **Output** | −24 to +12 dB trim (after Dry + Wet are summed). |
 | **Auto** | Master auto gain (note: Drive 0 is not a bypass. The tube voicing EQ stays in, about +1.6 dB around 100 Hz, so AUTO typically shows −0.1 to −1 dB there, more on bass-heavy material): keeps the output as loud as the input (K-weighted, like LUFS, averaged over ~3 s), so Drive/EQ/comp moves don't fool your ears and bypass A/Bs are fair. The readout shows what it's applying (±18 dB max). It holds through silence and only updates while audio is playing. Output trims on top. It's slow on purpose: it matches loudness, it doesn't ride the level. |
 
@@ -67,12 +73,12 @@ A **\*** after the name means you've changed something since loading it.
 
 Signal order in each path: EQ → Comp (with Mix) → fader → mute/solo, or Comp → EQ when flipped.
 
-At the default settings (Even, Odd and Density at 50 %, HPF off, shelves at 0 dB, Wet 0 dB / Dry Off,
+At the default settings (Even, Odd and Density at 50 %, HPF off, pre-sat EQ off, Wet 0 dB / Dry Off,
 EQ and Comp off) the output is bit-identical to v0.1.5, the BB Tubes-matched version.
 
 ## Dry/Wet phase lock
 
-Whatever either path is doing, Dry and Wet arrive at the sum in phase. Every user filter (HPF, both shelves,
+Whatever either path is doing, Dry and Wet arrive at the sum in phase. Every user filter (HPF, the pre-sat EQ,
 both strips' EQ bands) is built as a pair: a normal bell/shelf/high-pass at half the gain, then the same filter
 with its numerator reversed. The pair gives the full gain with a phase response that is **exactly** an all-pass,
 and the other path runs that all-pass (flat magnitude). It's the same trick that keeps a Linkwitz-Riley
@@ -80,7 +86,7 @@ crossover's two halves in phase. Both paths read one shared per-32-sample plan, 
 and while bands fade in or out.
 
 Measured (`measure/test_coherence.py`, `measure/test_switching.py`): wet-vs-dry phase stays within about 4° (the old
-fixed tube-voicing filter fit, unchanged) with HPF, shelves, both EQs, both comps and Mix all in use, at
+fixed tube-voicing filter fit, unchanged) with HPF, pre-sat EQ, both EQs, both comps and Mix all in use, at
 44.1/48/96 kHz. A 50/50 parallel sum loses under 0.01 dB. v0.1.8 lost up to 12 dB with the HPF up. During
 switching or automation the worst momentary loss is 0.1 dB.
 
@@ -88,16 +94,16 @@ Trade-off: phase-locking adds an all-pass to the *whole* output around the frequ
 low end in time (e.g. ~5-6 ms around a 100 Hz shelf vs ~1 ms for a normal EQ). So Glow only phase-locks when it
 matters: **an EQ is phase-locked only while the other path is audible** (Dry fader up and not muted/soloed out, or
 vice versa). Otherwise it's an ordinary EQ with normal, tight phase, and it crossfades between the two in 50 ms when
-that changes. **Linked pairs** (shelf Link, pre-EQ Link) always use an ordinary EQ plus its exact inverse, which
+that changes. **Linked pairs** (pre-sat EQ Link) always use an ordinary EQ plus its exact inverse, which
 cancels completely, phase included (measured 0.00 ms / 0.00 dB), so they need no all-pass at all. A flat band (0 dB) is fully switched out.
 
 ## Signal flow
 
 ```
-in ─┬─ HPF → pre shelf → input coupling HPFs (~24 Hz res.) → low bump (+2.8 dB @ 44 Hz) → presence dip
+in ─┬─ HPF → pre-sat EQ → input coupling HPFs (~24 Hz res.) → low bump (+2.8 dB @ 44 Hz) → presence dip
     │   → [4x oversampled]  input tube stage → coupling cap (~10 Hz) → Drive (+Odd) → output tube stage
     │                       (each stage's even part scaled by Even)
-    │   → DC blocker → auto-gain → post shelf → WET strip (EQ + dry-EQ all-passes → Comp/Mix → fader) ─┐
+    │   → DC blocker → auto-gain → mirror EQ (Link) → + clean lows (Keep Lows) → WET strip (EQ + dry-EQ all-passes → Comp/Mix → fader) ─┐
     └─ dry (latency-matched, + all-passes of the wet filters) → DRY strip (EQ + wet-EQ all-passes → Comp/Mix → fader) ─┴─ sum → Output
 ```
 

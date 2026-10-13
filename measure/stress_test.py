@@ -7,7 +7,7 @@ R = "plugin/build-linux/GlowRender_artefacts/Release/GlowRender"
 T = "/tmp/claude-0/ph"
 
 
-KEYS = ["drive", "even", "odd", "density", "hpf", "preHz", "preDb", "postHz", "postDb", "mix", "out"]
+KEYS = ["drive", "even", "odd", "density", "hpf", "peqMF", "peqMG", "peqHF", "peqHG", "mix", "out"]
 
 
 def render(x, sr, args, block=512):
@@ -49,10 +49,10 @@ sigs = {
 }
 for name, x in sigs.items():
     for args in (dict(drive=0, even=0, odd=0, density=0),
-                 dict(drive=100, even=100, odd=100, density=100, preDb=12, preHz=1000, postDb=12, postHz=1000, out=12),
-                 dict(drive=100, even=0, odd=100, density=100, hpf=1000, preDb=-12, postDb=-12, wetLevel=-60, dryLevel=0, out=-24),
-                 dict(drive=50, even=100, odd=0, density=50, hpf=200, preDb=6, postDb=-6, dryLevel=-6, wetLevel=-6),
-                 dict(drive=100, even=100, odd=100, density=100, preHz=16000, preDb=12, postHz=16000, postDb=12),
+                 dict(drive=100, even=100, odd=100, density=100, peq=1, peqHG=15, peqHF=1000, peqMG=15, peqMF=1000, out=12),
+                 dict(drive=100, even=0, odd=100, density=100, hpf=1000, keep=1, peq=1, peqHG=-15, peqMG=-15, wetLevel=-60, dryLevel=0, out=-24),
+                 dict(drive=50, even=100, odd=0, density=50, hpf=200, keep=1, hpf24=0, peq=1, peqLink=1, peqHG=6, dryLevel=-6, wetLevel=-6),
+                 dict(drive=100, even=100, odd=100, density=100, peq=1, peqHF=16000, peqHG=15, peqMF=12000, peqMG=15),
                  # channel strips: everything on, extreme settings, both paths
                  dict(drive=80, dryLevel=6, wetLevel=6, dryEq=1, wetEq=1, dryG1=18, dryF1=20, dryG4=18, dryF4=20000,
                       wetG2=-18, wetQ2=10, wetG3=18, wetQ3=0.1, dryComp=1, wetComp=1, dryIn=36, wetIn=36,
@@ -72,7 +72,7 @@ for name, x in sigs.items():
     print(f"extremes {name}: done")
 
 # 3. silence in -> silence out (no noise floor / DC creep)
-y = render(np.zeros(sr * 2), sr, dict(drive=100, even=100, odd=100, density=100, preDb=12, postDb=12, out=12))
+y = render(np.zeros(sr * 2), sr, dict(drive=100, even=100, odd=100, density=100, peq=1, peqHG=15, out=12))
 print(f"silence out peak at full settings: {20 * np.log10(np.max(np.abs(y)) + 1e-30):.1f} dBFS")
 
 # 4. dry path flatness/alignment is covered by measure/test_strips.py (it carries the matched
@@ -80,8 +80,8 @@ print(f"silence out peak at full settings: {20 * np.log10(np.max(np.abs(y)) + 1e
 
 # 5. block-size independence (same output whatever the host buffer)
 x = np.random.default_rng(3).standard_normal(sr) * 0.3
-a = render(x, sr, dict(drive=70, even=80, odd=30, density=60, hpf=80, preDb=4, postDb=-3), 64)
-b = render(x, sr, dict(drive=70, even=80, odd=30, density=60, hpf=80, preDb=4, postDb=-3), 1024)
+a = render(x, sr, dict(drive=70, even=80, odd=30, density=60, hpf=80, keep=1, peq=1, peqHG=4), 64)
+b = render(x, sr, dict(drive=70, even=80, odd=30, density=60, hpf=80, keep=1, peq=1, peqHG=4), 1024)
 d = 20 * np.log10(np.max(np.abs(a - b)) + 1e-30)
 print(f"block 64 vs 1024 max diff: {d:.1f} dB  (smoothing/auto-gain update per block, so small differences are expected)")
 print("ALL OK" if ok else "SOME FAILURES")

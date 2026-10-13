@@ -8,10 +8,15 @@
 // The whole signal path, independent of the plugin wrapper so the offline
 // render tool (tools/RenderTool.cpp) runs the exact same code the plugin does.
 //
-//  in ─┬─ HPF → pre high shelf → input coupling (HPFs) → low bump → presence dip
+//  in ─┬─ HPF → pre-sat EQ (mid bell, high shelf) → input coupling (HPFs) → low bump → presence dip
 //      │   → [oversampled to ~384 kHz: input tube stage → coupling cap → Drive(+Odd) gain → output stage]
-//      │   → DC blocker → auto-gain → post high shelf → WET strip (EQ → Comp/Mix → fader) ─┐
-//      └─ dry → same oversampling filters (no saturation) → phase-match all-passes → DRY strip ─┴─ sum → Output
+//      │   → DC blocker → (Link: mirror of the pre-sat EQ) → (+ Keep lows) → WET strip (EQ → Comp/Mix → fader) ─┐
+//      └─ dry → same oversampling filters (no saturation) → phase-match all-passes → DRY strip ──────────────────┴─ sum → Output
+//
+// Keep lows: the lows the HPF takes away skip the tubes and come back clean. They're taken from
+// the dry path's latency-matched clean copy, given the tube path's fixed (linear) voicing - its
+// coupling high-passes and low bump - and then (HPF all-pass) - (HPF): exactly what the
+// phase-locked HPF removed. So with clean tubes, HPF + Keep lows sounds the same as no HPF.
 //
 // Dry/Wet phase: the dry path goes through an identical copy of the oversampling filters, so
 // its latency and top-end phase match the wet path exactly, plus an all-pass (flat magnitude)
@@ -68,14 +73,14 @@ public:
         float odd = 50.0f;      // 0..100     50 = as measured, -/+12 dB of clipping depth at 0/100
         float density = 50.0f;  // 0..100     input-stage heat: 50 = measured, 0 = clean, 100 = +12 dB hotter
         float hpfHz = kHpfOffHz; // Off, or 20..1000 Hz   pre-saturation high-pass
-        float preShelfHz = 5000.0f, preShelfDb = 0.0f;    // pre-saturation high shelf
-        float postShelfHz = 5000.0f, postShelfDb = 0.0f;  // post-saturation high shelf
+        bool hpf24 = true;      // HPF slope: 24 dB/oct (true) or 12 dB/oct
+        bool keepLows = false;  // what the HPF removes skips the tubes and is added back clean
         float outputDb = 0.0f;  // -24..+12 dB
-        bool shelfLink = false; // pre/post shelves linked (post = -pre): ordinary exact-inverse pair
         bool autoGain = false;  // match output loudness to input (before the Output trim)
         float envAmount = 0.0f; // -100..+100 %: envelope follower moves Drive with the input's dynamics
         float envSpeed = 50.0f; // 0..100: slow (follows phrases) .. fast (follows hits)
-        EqSettings preEq;       // expanded pre-saturation EQ (bands 1 low, 2 mid, 4 high; band 3 unused)
+        EqSettings preEq = [] { EqSettings e; e.lowShelf = false; e.bandOn[0] = false; e.bandOn[2] = false; return e; }();
+                                // pre-saturation EQ: band 2 = mid bell, band 4 = high shelf (1 and 3 unused)
         bool preEqLink = false; // mirror it after the tubes at opposite gain
         ChannelStrip::Settings dry { ChannelStrip::kOffDb, {}, {} };   // dry path off by default
         ChannelStrip::Settings wet { 0.0f, {}, {} };                   // wet path at unity
@@ -105,9 +110,10 @@ public:
         wetStrip.prepare (sr, channels, maxBlock);
 
         ch.assign ((size_t) channels, Channel {});
-        hpfStage.prepare (sr, maxBlock, Coherent::Kind::highPass);
-        preStage.prepare (sr, maxBlock, Coherent::Kind::highShelf);
-        postStage.prepare (sr, maxBlock, Coherent::Kind::highShelf);
+        hpf[0].stage.prepare (sr, maxBlock, Coherent::Kind::highPass);     // 24 dB/oct
+        hpf[1].stage.prepare (sr, maxBlock, Coherent::Kind::highPass12);   // 12 dB/oct
+        keepBuf.setSize (channels, maxBlock, false, true, true);
+        keepBuf2.setSize (channels, maxBlock, false, true, true);
         for (auto& c : ch)
         {
             c.hp1.setOnePoleHighPass (DriveMap::eq.hp1Fc, sr);
@@ -119,6 +125,9 @@ public:
                                  sr * (double) oversampler->getOversamplingFactor());
             for (int k = 0; k < DryPhase::numSecondOrder; ++k)
                 c.dryPhase[(size_t) k].setAllPass (DryPhase::secondOrder[k].fc, DryPhase::secondOrder[k].q, sr);
+            // Keep lows: the tube path's fixed linear voicing (the interstage cap at base rate)
+            c.kHp1 = c.hp1; c.kHp2 = c.hp2; c.kBump = c.bump; c.kDip = c.dip; c.kDc = c.dc;
+            c.kInter.setHighPass (DriveMap::st1.hpFc, DriveMap::st1.hpQ, sr);
         }
         for (auto* k : { &kIn, &kOut })
             for (auto& c : *k)
@@ -160,9 +169,9 @@ public:
             c.dc.reset(); c.inter.reset();
             for (auto& f : c.dryPhase) f.reset();
         }
-        for (auto* m : { &hpfMain, &preMain, &postMain }) m->reset();
-        for (auto* a : { &hpfAp, &preAp, &postAp }) a->reset();
-        for (auto* st : { &hpfStage, &preStage, &postStage }) st->snapNext();
+        for (auto& h : hpf) h.reset();
+        for (auto& c : ch) c.resetKeep();
+        keepMix = params.keepLows ? 1.0f : 0.0f;
         oddMakeup = 1.0f;
         oddPowAvg = refPowAvg = 0.0f;
         for (auto* k : { &kIn, &kOut }) for (auto& c : *k) { c[0].reset(); c[1].reset(); }
@@ -234,9 +243,16 @@ public:
         const bool anySoloEarly = params.dry.solo || params.wet.solo;
         const bool dryHeard = dryStrip.isActive (params.dry) && ! params.dry.mute && (! anySoloEarly || params.dry.solo);
         const bool wetHeard = wetStrip.isActive (params.wet) && ! params.wet.mute && (! anySoloEarly || params.wet.solo);
-        hpfStage.plan (params.hpfHz >= kHpfMinHz - 0.5f, params.hpfHz, 0.0f, 0.70710678f, n);
-        preStage.plan (true, params.preShelfHz, params.preShelfDb, 0.70710678f, n, dryHeard && ! params.shelfLink);
-        postStage.plan (true, params.postShelfHz, params.postShelfDb, 0.70710678f, n, dryHeard && ! params.shelfLink);
+        // HPF: one stage per slope; switching slope glides one out and the other in (no click)
+        {
+            const bool on = params.hpfHz >= kHpfMinHz - 0.5f;
+            hpf[0].stage.plan (on && params.hpf24, params.hpfHz, 0.0f, 0.70710678f, n);
+            hpf[1].stage.plan (on && ! params.hpf24, params.hpfHz, 0.0f, 0.70710678f, n);
+        }
+        const bool hpfBusy = hpf[0].stage.busy() || hpf[1].stage.busy();
+        // Keep lows: fades in/out over 20 ms; only does anything while the HPF is in
+        const bool keepWanted = params.keepLows && hpfBusy;
+        const bool needKeep = keepWanted || keepMix > 0.0f;
         // mute/solo (like a console: any solo mutes the un-soloed path; mute always wins)
         const bool anySolo = params.dry.solo || params.wet.solo;
         params.dry.audible = ! params.dry.mute && (! anySolo || params.dry.solo);
@@ -258,20 +274,56 @@ public:
         dryStrip.planEq (params.dry, dryActive, n, wetHeard);
 
         // dry path: copy of the input through the same oversampling filters + phase-match all-passes
+        // (also run while Keep lows needs that clean, time-aligned copy)
         auto dry = juce::dsp::AudioBlock<float> (dryBuf).getSubsetChannelBlock (0, (size_t) nch).getSubBlock (0, (size_t) n);
-        if (dryActive)
+        auto lows = juce::dsp::AudioBlock<float> (keepBuf).getSubsetChannelBlock (0, (size_t) nch).getSubBlock (0, (size_t) n);
+        const bool cleanChain = dryActive || needKeep;
+        if (cleanChain)
         {
             if (dryStale)   // fader just came up: start the dry filters from a clean state
             {
                 dryOversampler->reset();
                 for (auto& c : ch) for (auto& f : c.dryPhase) f.reset();
-                for (auto* a : { &hpfAp, &preAp, &postAp }) a->reset();
+                for (auto& h : hpf) h.ap.reset();
                 preEqF.resetAllpass(); postEqF.resetAllpass();
                 dryStale = false;
+            }
+            if (needKeep && keepStale)   // Keep lows just came in: clean filter state (it fades in)
+            {
+                for (auto& h : hpf) { h.keepMain.reset(); h.keepAp.reset(); }
+                for (auto& c : ch) c.resetKeep();
+                keepStale = false;
             }
             dry.copyFrom (block.getSubsetChannelBlock (0, (size_t) nch));
             dryOversampler->processSamplesUp (dry);
             dryOversampler->processSamplesDown (dry);
+            if (needKeep)
+            {
+                // the clean lows: tube path's fixed voicing, then (HPF all-pass) - (HPF)
+                auto lowsM = juce::dsp::AudioBlock<float> (keepBuf2).getSubsetChannelBlock (0, (size_t) nch).getSubBlock (0, (size_t) n);
+                lows.copyFrom (dry);
+                for (int c = 0; c < nch; ++c)
+                {
+                    auto* l = lows.getChannelPointer ((size_t) c);
+                    auto& s = ch[(size_t) c];
+                    for (int i = 0; i < n; ++i)
+                    {
+                        double v = l[i];
+                        v = s.kHp1.process (v); v = s.kHp2.process (v); v = s.kBump.process (v); v = s.kDip.process (v);
+                        v = s.kInter.process (v); v = s.kDc.process (v);
+                        l[i] = (float) v;
+                    }
+                }
+                lowsM.copyFrom (lows);
+                for (auto& h : hpf)
+                    if (h.stage.busy())
+                    {
+                        h.keepAp.process (h.stage, lows);
+                        h.keepMain.process (h.stage, lowsM);
+                    }
+                lows.subtract (lowsM);
+            }
+            else keepStale = true;
             for (int c = 0; c < nch; ++c)
             {
                 auto* d = dry.getChannelPointer ((size_t) c);
@@ -283,17 +335,17 @@ public:
                     d[i] = (float) v;
                 }
             }
-            // the wet path's HPF and shelves, as all-passes
-            if (hpfStage.busy())  hpfAp.process (hpfStage, dry);
-            if (preStage.busy())  preAp.process (preStage, dry);
-            if (postStage.busy()) postAp.process (postStage, dry);
+            // the wet path's HPF and EQs, as all-passes
+            for (auto& h : hpf) if (h.stage.busy()) h.ap.process (h.stage, dry);
             preEqF.allpassOnOtherPath (dry);
             postEqF.allpassOnOtherPath (dry);
+            if (! dryActive) dry.clear();
         }
         else
         {
             dry.clear();
             dryStale = true;
+            keepStale = true;
         }
 
         // drive/density are smoothed per block; gains are ramped per sample
@@ -331,8 +383,7 @@ public:
 
         // ---- base rate: pre-EQ ----
         auto wetIn = block.getSubsetChannelBlock (0, (size_t) nch);
-        if (hpfStage.busy()) hpfMain.process (hpfStage, wetIn);
-        if (preStage.busy()) preMain.process (preStage, wetIn);
+        for (auto& h : hpf) if (h.stage.busy()) h.main.process (h.stage, wetIn);
         preEqF.process (wetIn);
         for (int c = 0; c < nch; ++c)
         {
@@ -413,7 +464,8 @@ public:
             }
         }
 
-        // ---- base rate: DC block, output staging, post shelf ----
+        // ---- base rate: DC block, output staging, Link mirror ----
+        const float p0 = smPost.getCurrentValue();
         for (int c = 0; c < nch; ++c)
         {
             auto* y = block.getChannelPointer ((size_t) c);
@@ -425,8 +477,33 @@ public:
             }
         }
         smPost.skip (n);
-        if (postStage.busy()) postMain.process (postStage, wetIn);
+        const float p1 = smPost.getCurrentValue();
         postEqF.process (wetIn);
+
+        // Keep lows: add the clean lows back at the tube path's small-signal gain (in x out
+        // staging), so a clean signal comes out flat
+        if (needKeep)
+        {
+            const float target = keepWanted ? 1.0f : 0.0f;
+            const float step = (float) (1.0 / (0.02 * sr)) * (target > keepMix ? 1.0f : -1.0f);
+            const float k0 = keepMix;
+            float kEnd = k0;
+            for (int c = 0; c < nch; ++c)
+            {
+                auto* y = block.getChannelPointer ((size_t) c);
+                const auto* l = lows.getChannelPointer ((size_t) c);
+                float km = k0;
+                for (int i = 0; i < n; ++i)
+                {
+                    km = target > km ? juce::jmin (target, km + step) : juce::jmax (target, km + step);
+                    const float t = (float) (i + 1) / (float) n;
+                    const float gw = (g0 + (g1 - g0) * t) * (p0 + (p1 - p0) * t);
+                    y[i] += km * gw * l[i];
+                }
+                kEnd = km;
+            }
+            keepMix = kEnd;
+        }
 
         // channel strips, then sum (a muted dry path costs nothing)
         auto wetBlock = block.getSubsetChannelBlock (0, (size_t) nch);
@@ -644,6 +721,8 @@ private:
         Biquad hp1, hp2, bump, dip, dc;    // fixed (measured) EQ
         Biquad inter; // interstage coupling cap, runs at the oversampled rate
         std::array<Biquad, DryPhase::numSecondOrder> dryPhase;   // dry-path phase match
+        Biquad kHp1, kHp2, kBump, kDip, kInter, kDc;               // Keep lows: the tube path's fixed voicing
+        void resetKeep() { for (auto* b : { &kHp1, &kHp2, &kBump, &kDip, &kInter, &kDc }) b->reset(); }
     };
 
     double sr = 48000;
@@ -666,10 +745,18 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smPre { 1.0f }, smPost { 1.0f }, smOut { 1.0f };
     juce::SmoothedValue<float> smDrive, smDensity, smEven, smOdd;
     bool firstBlock = true;
-    // user HPF + pre/post shelves: plans, the wet-path filters, and their dry-path all-passes
-    Coherent::Stage hpfStage, preStage, postStage;
-    Coherent::Main hpfMain, preMain, postMain;
-    Coherent::Allpass hpfAp, preAp, postAp;
+    // user HPF, one per slope: plan, wet-path filter, dry-path all-pass, and the pair Keep lows uses
+    struct Hpf
+    {
+        Coherent::Stage stage;
+        Coherent::Main main, keepMain;
+        Coherent::Allpass ap, keepAp;
+        void reset() { main.reset(); keepMain.reset(); ap.reset(); keepAp.reset(); stage.snapNext(); }
+    };
+    std::array<Hpf, 2> hpf;   // [0] 24 dB/oct, [1] 12 dB/oct
+    juce::AudioBuffer<float> keepBuf, keepBuf2;   // Keep lows: the clean lows under the HPF (+ scratch)
+    float keepMix = 0.0f;
+    bool keepStale = true;
     float oddMakeup = 1.0f, oddPowAvg = 0.0f, refPowAvg = 0.0f;
     Params params;
     KneeTable knee1, knee2;   // input stage (fixed), output stage (follows Drive)

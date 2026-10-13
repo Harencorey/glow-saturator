@@ -37,8 +37,20 @@ public:
     void getStateInformation (juce::MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
 
+    juce::UndoManager undoManager;   // the editor's Undo / Redo (parameter changes)
     juce::AudioProcessorValueTreeState apvts;
     PresetManager presets { apvts };
+
+    // A/B compare: two complete settings slots (message thread). The current one is live in apvts.
+    int getAB() const { return abSel; }
+    void switchAB (int target)
+    {
+        if (target == abSel || target < 0 || target > 1) return;
+        abSlot[(size_t) abSel] = apvts.copyState();
+        if (abSlot[(size_t) target].isValid()) apvts.replaceState (abSlot[(size_t) target].createCopy());
+        abSel = target;   // a fresh slot starts as a copy of the other one
+        undoManager.clearUndoHistory();
+    }
 
     // meters (message thread)
     float takeDryPeak() { return dsp.takeDryPeak(); }
@@ -56,6 +68,8 @@ public:
 private:
     GlowDSP dsp;
     int maxBlock = 512;
+    std::array<juce::ValueTree, 2> abSlot;
+    int abSel = 0;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::None> bypassDelay { 4096 };
     void feedBypassDelay (juce::AudioBuffer<float>&, bool writeOutput);
     std::atomic<float>* pDrive = nullptr;
@@ -63,11 +77,7 @@ private:
     std::atomic<float>* pOdd = nullptr;
     std::atomic<float>* pDensity = nullptr;
     std::atomic<float>* pHpf = nullptr;
-    std::atomic<float>* pPreHz = nullptr;
-    std::atomic<float>* pPreDb = nullptr;
-    std::atomic<float>* pPostHz = nullptr;
-    std::atomic<float>* pPostDb = nullptr;
-    std::atomic<float>* pLink = nullptr;
+    std::atomic<float>* pHpf24 = nullptr, * pKeepLows = nullptr;
     std::atomic<float>* pOutput = nullptr, * pAuto = nullptr, * pEnvAmt = nullptr, * pEnvSpeed = nullptr;
     std::map<std::string, std::atomic<float>*> preEqP;
 

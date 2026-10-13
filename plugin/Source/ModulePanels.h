@@ -183,6 +183,18 @@ public:
         setRepaintsOnMouseActivity (false);
     }
 
+    // Optional extras for the pre-saturation EQ on the main panel:
+    // point names ("M", "H"), a fixed high shelf on band 4, and the HPF drawn in with its own
+    // point (drag left/right = frequency, double-click = Off), Keep lows and the Link mirror.
+    std::vector<juce::String> names;
+    bool fixedHighShelf = false;
+    void attachHpf (juce::RangedAudioParameter* hz, std::atomic<float>* slope24, std::atomic<float>* keep, std::atomic<float>* link)
+    {
+        hpfParam = hz; slopeP = slope24; keepP = keep; linkP = link;
+    }
+
+    static constexpr int kHp = 4;   // the HPF point
+
     void mouseMove (const juce::MouseEvent& e) override
     {
         const int h = hitBand (e.position);
@@ -201,6 +213,13 @@ public:
     {
         dragBand = hitBand (e.position);
         if (dragBand < 0) return;
+        if (dragBand == kHp)
+        {
+            hpfParam->beginChangeGesture();
+            anchorPos = e.position;
+            anchorF = juce::jmax (20.0f, valueOf (hpfParam));
+            return;
+        }
         if (onParam != nullptr && onParam->getValue() < 0.5f)   // dragging a point switches the EQ in
             onParam->setValueNotifyingHost (1.0f);
         if (freqParam[dragBand] == nullptr || gainParam[dragBand] == nullptr) { dragBand = -1; return; }
@@ -214,6 +233,12 @@ public:
     void mouseDrag (const juce::MouseEvent& e) override
     {
         if (dragBand < 0) return;
+        if (dragBand == kHp)
+        {
+            const float dx = e.position.x - anchorPos.x;
+            setParam (hpfParam, juce::jlimit (20.0f, 1000.0f, anchorF * std::pow (1000.0f, dx / (float) getWidth())));
+            return;
+        }
         updateSolo (e.mods.isShiftDown());
         const int mode = e.mods.isCommandDown() ? 2 : (e.mods.isAltDown() ? 1 : 0);   // 2 = Q, 1 = freq only
         if (mode != anchorMode) anchor (e);
@@ -234,6 +259,7 @@ public:
     {
         updateSolo (false);
         if (dragBand < 0) return;
+        if (dragBand == kHp) { hpfParam->endChangeGesture(); dragBand = -1; return; }
         freqParam[dragBand]->endChangeGesture();
         gainParam[dragBand]->endChangeGesture();
         if (qParam[dragBand] != nullptr) qParam[dragBand]->endChangeGesture();
@@ -242,7 +268,7 @@ public:
 
     void modifierKeysChanged (const juce::ModifierKeys& m) override
     {
-        if (dragBand >= 0) updateSolo (m.isShiftDown());   // Shift pressed/released without moving
+        if (dragBand >= 0 && dragBand != kHp) updateSolo (m.isShiftDown());   // Shift pressed/released without moving
     }
 
     // Double-click a point: bypass / re-engage that band.  Option-double-click: reset its gain.
@@ -250,6 +276,13 @@ public:
     {
         const int b = hitBand (e.position);
         if (b < 0) return;
+        if (b == kHp)   // HPF point: double-click = Off
+        {
+            hpfParam->beginChangeGesture();
+            hpfParam->setValueNotifyingHost (0.0f);
+            hpfParam->endChangeGesture();
+            return;
+        }
         if (e.mods.isAltDown() || bandOnParam[b] == nullptr)
         {
             gainParam[b]->beginChangeGesture();
@@ -265,7 +298,7 @@ public:
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
     {
         const int b = dragBand >= 0 ? dragBand : hitBand (e.position);
-        if (b < 0 || qParam[b] == nullptr) return;   // no Q on this band
+        if (b < 0 || b == kHp || qParam[b] == nullptr) return;   // no Q on this band
         const float q = qParam[b]->convertFrom0to1 (qParam[b]->getValue());
         qParam[b]->beginChangeGesture();
         setParam (qParam[b], juce::jlimit (0.1f, 10.0f, q * std::pow (2.0f, w.deltaY * 2.0f)));
@@ -286,7 +319,20 @@ public:
         e.lowShelf = v ("EqLowShelf") > 0.5f;
         e.highShelf = v ("EqHighShelf") > 0.5f;
         for (int b = 0; b < 4; ++b) e.bandOn[b] = v ("EqBand" + juce::String (b + 1) + "On", 1.0f) > 0.5f;
+        if (fixedHighShelf) { e.lowShelf = false; e.highShelf = true; }
+        for (int b = 0; b < 4; ++b)   // slots this curve doesn't use are out of the picture
+            if (std::find (bands.begin(), bands.end(), b) == bands.end()) e.bandOn[b] = false;
         return e;
+    }
+
+    float hpfHz() const { return hpfParam != nullptr ? valueOf (hpfParam) : 0.0f; }
+    bool hpfOn() const { return hpfParam != nullptr && hpfHz() >= 19.5f; }
+    // the HPF's response in dB (the settled filter, as the DSP runs it)
+    double hpfDb (double f) const
+    {
+        if (! hpfOn()) return 0.0;
+        const auto k = slopeP != nullptr && slopeP->load() < 0.5f ? Coherent::Kind::highPass12 : Coherent::Kind::highPass;
+        return Coherent::Stage::responseDb (k, hpfHz(), 0.0, 0.70710678, f, 48000.0);
     }
 
     void refresh()
@@ -296,6 +342,13 @@ public:
         for (int b = 0; b < 4 && same; ++b)
             same = e.bandOn[b] == shown.bandOn[b] && std::abs (e.freq[b] - shown.freq[b]) < 1.0e-3f && std::abs (e.gain[b] - shown.gain[b]) < 1.0e-4f
                    && std::abs (e.q[b] - shown.q[b]) < 1.0e-4f;
+        if (hpfParam != nullptr)
+        {
+            const float h = hpfHz(), sl = slopeP != nullptr ? slopeP->load() : 1.0f,
+                        kp = keepP != nullptr ? keepP->load() : 0.0f, lk = linkP != nullptr ? linkP->load() : 0.0f;
+            if (std::abs (h - shownHpf) > 1.0e-3f || std::abs (sl - shownSlope) > 0.1f || std::abs (kp - shownKeep) > 0.1f || std::abs (lk - shownLink) > 0.1f)
+            { shownHpf = h; shownSlope = sl; shownKeep = kp; shownLink = lk; same = false; }
+        }
         if (! same) { shown = e; repaint(); }
     }
 
@@ -363,13 +416,13 @@ public:
         }
 
         // curve (while soloing: the full curve greyed out, and the soloed band's own curve in colour)
-        auto curvePath = [&] (const EqSettings& es)
+        auto curvePath = [&] (const EqSettings& es, bool withHpf = true)
         {
             juce::Path path;
             for (int i = 0; i <= 200; ++i)
             {
                 const double f = 20.0 * std::pow (1000.0, i / 200.0);
-                const float y = yOf (FourBandEQ::responseDb (es, f));
+                const float y = yOf ((float) (FourBandEQ::responseDb (es, f) + (withHpf ? hpfDb (f) : 0.0)));
                 if (i == 0) path.startNewSubPath (xOf (f), y); else path.lineTo (xOf (f), y);
             }
             return path;
@@ -382,6 +435,39 @@ public:
             return path;
         };
         const auto path = curvePath (shown);
+        const float dashes[] { 5.0f, 4.0f };
+        if (hpfOn())
+        {
+            // the cut region, and (Keep lows) the clean lows coming back
+            const float hx = xOf (hpfHz());
+            g.setColour (GlowLookAndFeel::text.withAlpha (0.05f));
+            g.fillRect (juce::Rectangle<float> (r.getX(), r.getY(), hx - r.getX(), r.getHeight()));
+            if (shownKeep > 0.5f)
+            {
+                juce::Path kp;
+                for (int i = 0; i <= 120; ++i)
+                {
+                    const double f = 20.0 * std::pow (hpfHz() * 4.0 / 20.0, i / 120.0);
+                    const double lin = juce::jmax (1.0e-4, 1.0 - std::pow (10.0, hpfDb (f) / 20.0));
+                    const float y = yOf ((float) (20.0 * std::log10 (lin)));
+                    if (i == 0) kp.startNewSubPath (xOf (f), y); else kp.lineTo (xOf (f), y);
+                }
+                juce::Path dashed;
+                juce::PathStrokeType (1.5f).createDashedStroke (dashed, kp, dashes, 2);
+                g.setColour (GlowLookAndFeel::text.withAlpha (0.55f));
+                g.fillPath (dashed);
+            }
+        }
+        if (shownLink > 0.5f && shown.on)
+        {
+            // Link: the exact opposite runs after the tubes
+            EqSettings mirror = shown;
+            for (auto& gdb : mirror.gain) gdb = -gdb;
+            juce::Path dashed;
+            juce::PathStrokeType (1.4f).createDashedStroke (dashed, curvePath (mirror, false), dashes, 2);
+            g.setColour (GlowLookAndFeel::text.withAlpha (0.4f));
+            g.fillPath (dashed);
+        }
         if (solo)
         {
             g.setColour (GlowLookAndFeel::textDim.withAlpha (0.45f));
@@ -426,7 +512,7 @@ public:
                 g.fillEllipse (x - rad, y - rad, 2.0f * rad, 2.0f * rad);
             g.setColour (bypassed ? hc : GlowLookAndFeel::bg);
             g.setFont (juce::FontOptions (active ? 10.0f : 8.5f, juce::Font::bold));
-            g.drawText (bands.size() == 3 ? juce::String::charToString ("LMH"[bi]) : juce::String (b + 1),
+            g.drawText (bi < names.size() ? names[bi] : bands.size() == 3 ? juce::String::charToString ("LMH"[bi]) : juce::String (b + 1),
                         juce::Rectangle<float> (x - rad, y - rad, 2.0f * rad, 2.0f * rad), juce::Justification::centred);
             if (active)
             {
@@ -443,14 +529,45 @@ public:
                 g.drawText (txt, box, juce::Justification::centred);
             }
         }
+        if (hpfOn())
+        {
+            const auto pt = hpPoint();
+            const bool active = hover == kHp || dragBand == kHp;
+            const float rad = active ? 9.0f : 7.5f;
+            g.setColour (GlowLookAndFeel::bg.withAlpha (0.9f));
+            g.fillEllipse (pt.x - rad, pt.y - rad, 2.0f * rad, 2.0f * rad);
+            g.setColour (GlowLookAndFeel::text);
+            g.drawEllipse (pt.x - rad + 0.75f, pt.y - rad + 0.75f, 2.0f * rad - 1.5f, 2.0f * rad - 1.5f, 1.5f);
+            g.setFont (juce::FontOptions (7.5f, juce::Font::bold));
+            g.drawText ("HP", juce::Rectangle<float> (pt.x - rad, pt.y - rad, 2.0f * rad, 2.0f * rad), juce::Justification::centred);
+            if (active)
+            {
+                const float hz = hpfHz();
+                auto box = juce::Rectangle<float> (pt.x - 40.0f, pt.y - rad - 22.0f, 80.0f, 16.0f).constrainedWithin (r.reduced (2.0f));
+                g.setColour (juce::Colours::black.withAlpha (0.7f));
+                g.fillRoundedRectangle (box, 3.0f);
+                g.setColour (GlowLookAndFeel::text);
+                g.setFont (juce::FontOptions (10.5f));
+                g.drawText ("HPF " + juce::String ((int) std::round (hz)) + " Hz", box, juce::Justification::centred);
+            }
+        }
     }
 
 private:
+    juce::Point<float> hpPoint() const
+    {
+        const auto r = getLocalBounds().toFloat();
+        const float x = r.getX() + r.getWidth() * std::log (hpfHz() / 20.0f) / std::log (1000.0f);
+        const float y = r.getCentreY() - r.getHeight() * 0.5f * (-3.0f / 20.0f) * 0.9f;
+        return { x, y };
+    }
+
     int hitBand (juce::Point<float> pos) const
     {
         const auto r = getLocalBounds().toFloat();
         int best = -1;
         float bestD = 14.0f;   // grab radius, px
+        if (hpfOn() && pos.getDistanceFrom (hpPoint()) < bestD) { bestD = pos.getDistanceFrom (hpPoint()); best = kHp; }
         for (int b : bands)
         {
             const float x = r.getX() + r.getWidth() * std::log (shown.freq[b] / 20.0f) / std::log (1000.0f);
@@ -475,6 +592,9 @@ private:
     juce::RangedAudioParameter* freqParam[4] {}, * gainParam[4] {}, * qParam[4] {};
     juce::RangedAudioParameter* bandOnParam[4] {};
     juce::RangedAudioParameter* onParam = nullptr;
+    juce::RangedAudioParameter* hpfParam = nullptr;
+    std::atomic<float>* slopeP = nullptr, * keepP = nullptr, * linkP = nullptr;
+    float shownHpf = -1.0f, shownSlope = -1.0f, shownKeep = -1.0f, shownLink = -1.0f;
     int hover = -1, dragBand = -1;
     // relative-drag anchor (re-taken whenever the modifier mode changes)
     juce::Point<float> anchorPos;
@@ -493,7 +613,7 @@ private:
     }
     void updateSolo (bool want)
     {
-        want = want && dragBand >= 0;
+        want = want && dragBand >= 0 && dragBand != kHp;
         if (want == soloing) return;
         soloing = want;
         if (onSolo) onSolo (want ? dragBand : -1);
@@ -562,7 +682,7 @@ public:
 protected:
     void layoutContent (juce::Rectangle<int> r) override
     {
-        curve.setBounds (r.removeFromTop (juce::jmin (140, r.getHeight() / 2)));
+        curve.setBounds (r.removeFromTop (juce::jmax (140, r.getHeight() - 150)));   // knobs keep ~150 px, the curve gets the rest
         r.removeFromTop (6);
         const int w = r.getWidth() / 4;
         for (int b = 0; b < 4; ++b)
@@ -585,89 +705,6 @@ private:
     juce::Label bandLabel[4];
     std::atomic<float>* bandOn[4] {};
     ToggleParam lowShelf, highShelf;
-};
-
-//==============================================================================
-// Expanded pre-saturation EQ: LOW (shelf/bell), MID (bell with Q), HIGH (shelf/bell), + LINK.
-// It shapes what hits the tubes; with LINK on, the exact opposite EQ is applied after them,
-// so you change what saturates without changing the overall tone.
-class PreEqPanel : public ModulePanel
-{
-public:
-    void setSoloHandler (std::function<void (int)> f) override { curve.onSolo = std::move (f); }
-    explicit PreEqPanel (juce::AudioProcessorValueTreeState& s)
-        : ModulePanel (s, "PRE-SATURATION EQ", "preEqOn"), curve (s, "pre", { 0, 1, 3 })
-    {
-        addAndMakeVisible (curve);
-        link.setup (*this, s, "preEqLink", "LINK");
-        headerExtra = &link.button;
-        link.button.setTooltip ("LINK: applies the opposite of this EQ after the tubes. You change what saturates "
-                                "(e.g. push the mids into the tubes) while the overall tone stays the same.");
-        const char* names[3] { "LOW", "MID", "HIGH" };
-        const int slot[3] { 1, 2, 4 };
-        const double defF[3] { 100.0, 1000.0, 6000.0 };
-        for (int b = 0; b < 3; ++b)
-        {
-            const juce::String n (slot[b]);
-            freq[b].setup (*this, s, "preEqFreq" + n, "FREQ", defF[b], 10.0f);
-            gain[b].setup (*this, s, "preEqGain" + n, "GAIN", 0.0, 10.0f);
-            q[b].setup (*this, s, "preEqQ" + n, "Q", 0.7, 10.0f);
-            freq[b].tip (juce::String (names[b]) + " band frequency");
-            gain[b].tip (juce::String (names[b]) + " band boost or cut, going into the tubes");
-            bandLabel[b].setText (names[b], juce::dontSendNotification);
-            bandOn[b] = s.getRawParameterValue ("preEqBand" + n + "On");
-            bandLabel[b].setFont (juce::FontOptions (11.0f, juce::Font::bold));
-            bandLabel[b].setColour (juce::Label::textColourId, GlowLookAndFeel::text);
-            addAndMakeVisible (bandLabel[b]);
-        }
-        q[1].tip ("MID band width: low Q = broad, high Q = narrow (target a nasal or boxy spot)");
-        q[0].tip ("LOW Q. As a bell: width. As a shelf: shape of the corner, 0.71 = smooth shelf, "
-                  "higher = a bump/dip at the turnover (like a passive tube EQ's shelf), lower = gentler slope");
-        q[2].tip ("HIGH Q. As a bell: width. As a shelf: shape of the corner, 0.71 = smooth shelf, "
-                  "higher = a bump/dip at the turnover, lower = gentler slope");
-        lowShelf.setup (*this, s, "preEqLowShelf", "SHELF");
-        highShelf.setup (*this, s, "preEqHighShelf", "SHELF");
-        lowShelf.button.setTooltip ("LOW band: shelf (on) or bell (off)");
-        highShelf.button.setTooltip ("HIGH band: shelf (on) or bell (off)");
-        curve.setTooltip ("What goes into the tubes. Drag a point: frequency and gain. Cmd-drag: Q. "
-                          "Option-drag: frequency only. Hold Shift while dragging: solo that band. Double-click a point: bypass/re-engage that band. "
-                          "Option-double-click: reset its gain.");
-    }
-
-    void refresh() override
-    {
-        curve.refresh();
-        const char* names[3] { "LOW", "MID", "HIGH" };
-        for (int b = 0; b < 3; ++b)
-            showBandOn (bandLabel[b], names[b], bandOn[b], { &freq[b], &gain[b], &q[b] });
-    }
-
-protected:
-    void layoutContent (juce::Rectangle<int> r) override
-    {
-        curve.setBounds (r.removeFromTop (juce::jmin (140, r.getHeight() / 2)));
-        r.removeFromTop (6);
-        const int w = r.getWidth() / 3;
-        for (int b = 0; b < 3; ++b)
-        {
-            auto col = r.removeFromLeft (w).reduced (8, 0);
-            auto head = col.removeFromTop (20);
-            if (b == 0) lowShelf.button.setBounds (head.removeFromRight (52).reduced (0, 1));
-            if (b == 2) highShelf.button.setBounds (head.removeFromRight (52).reduced (0, 1));
-            bandLabel[b].setBounds (head);
-            const int kw = col.getWidth() / 3;
-            freq[b].place (col.removeFromLeft (kw), 14);
-            gain[b].place (col.removeFromLeft (kw), 14);
-            q[b].place (col, 14);
-        }
-    }
-
-private:
-    EqCurve curve;
-    Knob freq[3], gain[3], q[3];
-    juce::Label bandLabel[3];
-    std::atomic<float>* bandOn[3] {};
-    ToggleParam lowShelf, highShelf, link;
 };
 
 //==============================================================================
