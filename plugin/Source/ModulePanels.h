@@ -162,6 +162,8 @@ private:
 //==============================================================================
 // EQ response display: draws the combined curve, and the band points can be dragged
 // (left/right = frequency, up/down = gain), scrolled (Q) and double-clicked (gain to 0 dB).
+// While a band is soloed (Shift) the region the solo filter passes is shaded, the soloed band's
+// own curve is drawn in colour and everything else is greyed out; dragging keeps working.
 class EqCurve : public juce::Component, public juce::SettableTooltipClient
 {
 public:
@@ -311,32 +313,95 @@ public:
             g.drawHorizontalLine ((int) yOf (db), r.getX(), r.getRight());
         }
 
-        // curve
-        juce::Path path;
-        for (int i = 0; i <= 200; ++i)
-        {
-            const double f = 20.0 * std::pow (1000.0, i / 200.0);
-            const float y = yOf (FourBandEQ::responseDb (shown, f));
-            if (i == 0) path.startNewSubPath (xOf (f), y); else path.lineTo (xOf (f), y);
-        }
-        auto fill = path;
-        fill.lineTo (r.getRight(), yOf (0.0f));
-        fill.lineTo (r.getX(), yOf (0.0f));
-        fill.closeSubPath();
+        const bool solo = soloing && dragBand >= 0;
         const auto col = shown.on ? GlowLookAndFeel::amber : GlowLookAndFeel::textDim;
-        g.setColour (col.withAlpha (0.12f));
-        g.fillPath (fill);
-        g.setColour (col);
-        g.strokePath (path, juce::PathStrokeType (2.0f));
+
+        // solo: shade exactly the region the solo filter lets through (same maths as the DSP:
+        // bell = band-pass at its frequency and Q (Q held to 0.5..10), low shelf = low-pass,
+        // high shelf = high-pass), with dashed edges at its -3 dB points
+        if (solo)
+        {
+            const int b = dragBand;
+            const double f0 = juce::jlimit (20.0, 20000.0, (double) shown.freq[b]);
+            double lo = 20.0, hi = 20000.0;
+            if (b == 0 && shown.lowShelf)       hi = f0;
+            else if (b == 3 && shown.highShelf) lo = f0;
+            else
+            {
+                const double q = juce::jlimit (0.5, 10.0, (double) shown.q[b]);
+                const double k = 1.0 / (2.0 * q);
+                lo = f0 * (std::sqrt (1.0 + k * k) - k);
+                hi = f0 * (std::sqrt (1.0 + k * k) + k);
+            }
+            const float x0 = juce::jmax (r.getX(), xOf (juce::jmax (20.0, lo)));
+            const float x1 = juce::jmin (r.getRight(), xOf (juce::jmin (20000.0, hi)));
+            // everything outside the soloed region is dimmed
+            g.setColour (juce::Colours::black.withAlpha (0.35f));
+            g.fillRect (juce::Rectangle<float> (r.getX(), r.getY(), x0 - r.getX(), r.getHeight()));
+            g.fillRect (juce::Rectangle<float> (x1, r.getY(), r.getRight() - x1, r.getHeight()));
+            g.setGradientFill (juce::ColourGradient (GlowLookAndFeel::amber.withAlpha (0.16f), 0.0f, r.getY(),
+                                                     GlowLookAndFeel::amber.withAlpha (0.04f), 0.0f, r.getBottom(), false));
+            g.fillRect (juce::Rectangle<float> (x0, r.getY(), x1 - x0, r.getHeight()));
+            const float dash[] { 4.0f, 3.0f };
+            g.setColour (GlowLookAndFeel::amber.withAlpha (0.8f));
+            for (float ex : { x0, x1 })
+                if (ex > r.getX() + 1.0f && ex < r.getRight() - 1.0f)
+                    g.drawDashedLine (juce::Line<float> (ex, r.getY() + 2.0f, ex, r.getBottom() - 2.0f), dash, 2, 1.0f);
+            g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+            g.drawText ("SOLO", juce::Rectangle<float> (x0, r.getBottom() - 28.0f, juce::jmax (40.0f, x1 - x0), 12.0f)
+                                    .constrainedWithin (r.reduced (3.0f)), juce::Justification::centred);
+        }
+
+        // curve (while soloing: the full curve greyed out, and the soloed band's own curve in colour)
+        auto curvePath = [&] (const EqSettings& es)
+        {
+            juce::Path path;
+            for (int i = 0; i <= 200; ++i)
+            {
+                const double f = 20.0 * std::pow (1000.0, i / 200.0);
+                const float y = yOf (FourBandEQ::responseDb (es, f));
+                if (i == 0) path.startNewSubPath (xOf (f), y); else path.lineTo (xOf (f), y);
+            }
+            return path;
+        };
+        auto fillUnder = [&] (juce::Path path)
+        {
+            path.lineTo (r.getRight(), yOf (0.0f));
+            path.lineTo (r.getX(), yOf (0.0f));
+            path.closeSubPath();
+            return path;
+        };
+        const auto path = curvePath (shown);
+        if (solo)
+        {
+            g.setColour (GlowLookAndFeel::textDim.withAlpha (0.45f));
+            g.strokePath (path, juce::PathStrokeType (1.2f));
+            EqSettings one = shown;
+            one.on = true;
+            for (int b = 0; b < 4; ++b) if (b != dragBand) one.gain[b] = 0.0f;
+            const auto bandPath = curvePath (one);
+            g.setColour (GlowLookAndFeel::amber.withAlpha (0.18f));
+            g.fillPath (fillUnder (bandPath));
+            g.setColour (GlowLookAndFeel::amber);
+            g.strokePath (bandPath, juce::PathStrokeType (2.0f));
+        }
+        else
+        {
+            g.setColour (col.withAlpha (0.12f));
+            g.fillPath (fillUnder (path));
+            g.setColour (col);
+            g.strokePath (path, juce::PathStrokeType (2.0f));
+        }
 
         // band handles (bigger when hovered or dragged), with a readout for the active one
         for (size_t bi = 0; bi < bands.size(); ++bi)
         {
             const int b = bands[bi];
             const float x = xOf (shown.freq[b]), y = yOf (shown.gain[b]);
-            const bool active = b == hover || b == dragBand;
+            const bool active = solo ? b == dragBand : (b == hover || b == dragBand);
+            const bool greyed = solo && b != dragBand;
             const float rad = active ? 8.0f : 6.0f;
-            g.setColour (active ? GlowLookAndFeel::text : col);
+            g.setColour (active ? GlowLookAndFeel::text : greyed ? GlowLookAndFeel::textDim.withAlpha (0.35f) : col);
             g.fillEllipse (x - rad, y - rad, 2.0f * rad, 2.0f * rad);
             g.setColour (GlowLookAndFeel::bg);
             g.setFont (juce::FontOptions (active ? 10.0f : 8.5f, juce::Font::bold));
