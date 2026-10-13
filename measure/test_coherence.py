@@ -34,6 +34,8 @@ SETTINGS = {
                                         dryEq=1, dryG1=5, dryG3=-8, dryQ3=6, wetComp=1, wetIn=14, wetRatio=5,
                                         wetColour=1, wetMix=50, dryComp=1, dryIn=10, dryColour=2, dryMix=30,
                                         wetOrder=1, dryOrder=1),
+    "pre-sat EQ (low +5 shelf, mid -8 Q3, high +6)": dict(peq=1, peqLG=5, peqMF=800, peqMG=-8, peqMQ=3, peqHG=6),
+    "pre-sat EQ linked + envelope follower": dict(peq=1, peqLink=1, peqLG=6, peqMF=1500, peqMG=9, peqMQ=1.5, peqHG=-6, env=80, envSpeed=70),
     "mixed order (wet Comp -> EQ, dry EQ -> Comp)": dict(wetEq=1, wetG2=8, wetQ2=3, dryEq=1, dryG3=-6, wetComp=1,
                                                        wetIn=12, dryComp=1, dryIn=12, wetOrder=1),
 }

@@ -136,6 +136,20 @@ GlowEditor::GlowEditor (GlowProcessor& p) : AudioProcessorEditor (p), proc (p), 
     even.setup (*this, s, "even", "EVEN", 50.0);
     odd.setup (*this, s, "odd", "ODD", 50.0);
     density.setup (*this, s, "density", "DENSITY", 50.0);
+    envAmount.setup (*this, s, "envAmount", "ENVELOPE", 0.0, 10.0f);
+    envSpeed.setup (*this, s, "envSpeed", "SPEED", 50.0, 10.0f);
+    for (auto* k : { &envAmount, &envSpeed }) k->slider.setTextBoxStyle (Slider::TextBoxBelow, false, 64, 16);
+    envAmount.tip ("ENVELOPE: Drive follows the input's dynamics. + = louder moments get pushed harder (hits grit up, "
+                   "quiet parts stay clean). - = quiet parts get more drive, loud parts less (steady, even colour). "
+                   "The dot on the Drive ring shows where it's pushing Drive right now.");
+    envSpeed.tip ("SPEED: how fast the envelope follows. Fast = individual hits (drums), slow = phrases and sections.");
+    envAmtP = s.getRawParameterValue ("envAmount");
+    preEqOnP = s.getRawParameterValue ("preEqOn");
+    addAndMakeVisible (preEqIcon);
+    preEqIcon.setTooltip ("Pre-saturation EQ: click to open it, double-click to switch it on or off (lit = on). "
+                          "Shapes what hits the tubes; its LINK undoes it after them.");
+    preEqIcon.onSingleClick = [this] { togglePanel ("pre", ModuleIcon::Kind::eq); };
+    preEqIcon.onDoubleClick = [this] { toggleParam ("preEqOn"); };
     hpf.setup (*this, s, "hpf", "HIGH-PASS", GlowDSP::kHpfOffHz);
     preFreq.setup (*this, s, "preShelfFreq", "SHELF FREQ", 5000.0);
     preGain.setup (*this, s, "preShelfGain", "SHELF GAIN", 0.0);
@@ -221,8 +235,8 @@ void GlowEditor::setupStrip (Strip& st, const String& prefix, const String& name
     st.fader.setTooltip (prefix == "dry" ? "DRY level: the clean, unsaturated signal blended in parallel (bottom = Off)"
                                          : "WET level: the saturated signal");
     st.meter.setTooltip (name + " level (after its fader)");
-    st.eqIcon.onClick = [this, prefix] { togglePanel (prefix, ModuleIcon::Kind::eq); };
-    st.compIcon.onClick = [this, prefix] { togglePanel (prefix, ModuleIcon::Kind::comp); };
+    st.eqIcon.onSingleClick = [this, prefix] { togglePanel (prefix, ModuleIcon::Kind::eq); };
+    st.compIcon.onSingleClick = [this, prefix] { togglePanel (prefix, ModuleIcon::Kind::comp); };
 }
 
 // Flip a bool parameter as one host gesture (undoable / automatable like a click)
@@ -243,7 +257,9 @@ void GlowEditor::togglePanel (const String& prefix, ModuleIcon::Kind kind)
     if (same) return;
 
     const String name = prefix == "dry" ? "DRY" : "WET";
-    if (kind == ModuleIcon::Kind::eq)
+    if (prefix == "pre")
+        panel = std::make_unique<PreEqPanel> (proc.apvts);
+    else if (kind == ModuleIcon::Kind::eq)
         panel = std::make_unique<EqPanel> (proc.apvts, prefix, name);
     else
         panel = std::make_unique<CompPanel> (proc.apvts, prefix, name, [this, prefix]
@@ -307,6 +323,13 @@ void GlowEditor::timerCallback()
     }
     if (panel != nullptr) panel->refresh();
     presetBar.refresh();
+    preEqIcon.setState (preEqOnP->load() > 0.5f, panel != nullptr && panelPrefix == "pre");
+
+    // envelope follower: move the dot on the Drive ring
+    {
+        const float md = std::abs (envAmtP->load()) > 0.05f ? proc.modulatedDrive() : -1.0f;
+        if (std::abs (md - shownModDrive) > 0.15f) { shownModDrive = md; repaint (drive.slider.getBoundsInParent()); }
+    }
 
     // chain order (icons stack top = first) and mute/solo state (name dims when not heard)
     bool relayout = false;
@@ -394,6 +417,31 @@ void GlowEditor::paint (Graphics& g)
                 Justification::bottomRight);
 }
 
+// Envelope follower: a bright dot on the Drive ring at the Drive it's currently using.
+void GlowEditor::paintOverChildren (Graphics& g)
+{
+    if (shownModDrive < 0.0f || panel != nullptr) return;
+    auto& sl = drive.slider;
+    auto r = sl.getBoundsInParent().toFloat().withTrimmedBottom (18.0f).reduced (4.0f);
+    const float size = jmin (r.getWidth(), r.getHeight());
+    r = r.withSizeKeepingCentre (size, size);
+    const auto c = r.getCentre();
+    const float track = jmax (2.5f, size * 0.055f);
+    const float rad = size * 0.5f - track;
+    const auto rp = sl.getRotaryParameters();
+    const float a0 = rp.startAngleRadians, a1 = rp.endAngleRadians;
+    const float pos = (float) sl.valueToProportionOfLength (jlimit (0.0, 100.0, (double) shownModDrive));
+    const float ang = a0 + pos * (a1 - a0);
+    const float knobAng = a0 + (float) sl.valueToProportionOfLength (sl.getValue()) * (a1 - a0);
+    Path arc;   // the stretch the envelope is adding/removing
+    arc.addCentredArc (c.x, c.y, rad, rad, 0, jmin (ang, knobAng), jmax (ang, knobAng), true);
+    g.setColour (GlowLookAndFeel::text.withAlpha (0.55f));
+    g.strokePath (arc, PathStrokeType (track * 0.45f, PathStrokeType::curved, PathStrokeType::rounded));
+    const Point<float> pt (c.x + rad * std::sin (ang), c.y - rad * std::cos (ang));
+    g.setColour (GlowLookAndFeel::text);
+    g.fillEllipse (pt.x - track * 0.9f, pt.y - track * 0.9f, track * 1.8f, track * 1.8f);
+}
+
 void GlowEditor::layoutStrip (Strip& st, Rectangle<int> r)
 {
     st.label.setBounds (r.removeFromTop (18));
@@ -436,6 +484,7 @@ void GlowEditor::resized()
         auto r = preArea.withTrimmedTop (22).reduced (8, 4);
         auto top = r.removeFromTop (r.getHeight() / 2);
         hpf.place (top.withSizeKeepingCentre (110, top.getHeight()));
+        preEqIcon.setBounds (preArea.getRight() - 50, preArea.getY() + 4, 44, 38);
         preFreq.place (r.removeFromLeft (r.getWidth() / 2));
         preGain.place (r);
     }
@@ -457,6 +506,10 @@ void GlowEditor::resized()
         auto driveBox = r.withSizeKeepingCentre (dsz, r.getHeight());
         glowArea = driveBox.withSizeKeepingCentre (dsz + 30, dsz + 30).translated (0, 8);
         drive.place (driveBox);
+        // envelope follower knobs in the top corners beside Drive
+        const int side = jmax (64, (tubeArea.getWidth() - dsz) / 2 - 2);
+        envAmount.place (Rectangle<int> (tubeArea.getX() - 6, tubeArea.getY() + 24, side, 108), 14);
+        envSpeed.place (Rectangle<int> (tubeArea.getRight() - side + 6, tubeArea.getY() + 24, side, 108), 14);
         const int w = bottom.getWidth() / 3;
         even.place (bottom.removeFromLeft (w).reduced (6, 0));
         density.place (bottom.removeFromLeft (w).reduced (6, 0));

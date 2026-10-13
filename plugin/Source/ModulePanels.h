@@ -7,15 +7,21 @@
 //==============================================================================
 // Small clickable icon: draws an EQ curve or a compressor knee. Lit when the module is on,
 // outlined when its panel is open.
-class ModuleIcon : public juce::Button
+class ModuleIcon : public juce::Button, private juce::Timer
 {
 public:
     enum class Kind { eq, comp };
     ModuleIcon (Kind k) : juce::Button (k == Kind::eq ? "EQ" : "COMP"), kind (k) {}
 
-    // double-click switches the module on/off (single click opens/closes its panel)
-    std::function<void()> onDoubleClick;
-    void mouseDoubleClick (const juce::MouseEvent&) override { if (onDoubleClick) onDoubleClick(); }
+    // Single click opens/closes the panel; double-click ONLY switches the module on/off.
+    // A click waits out the double-click window first, so a double-click never opens a panel.
+    std::function<void()> onSingleClick, onDoubleClick;
+    void mouseDoubleClick (const juce::MouseEvent&) override
+    {
+        stopTimer();                 // cancel the pending single click
+        swallowNextClick = true;     // the double-click's second mouse-up is not a click
+        if (onDoubleClick) onDoubleClick();
+    }
 
     void setState (bool moduleOn, bool panelOpen)
     {
@@ -59,8 +65,20 @@ public:
     }
 
 private:
+    using juce::Button::clicked;
+    void clicked() override
+    {
+        if (swallowNextClick) { swallowNextClick = false; return; }
+        startTimer (juce::MouseEvent::getDoubleClickTimeout() + 20);
+    }
+    void timerCallback() override
+    {
+        stopTimer();
+        if (onSingleClick) onSingleClick();
+    }
+
     Kind kind;
-    bool on = false, open = false;
+    bool on = false, open = false, swallowNextClick = false;
 };
 
 //==============================================================================
@@ -124,6 +142,7 @@ public:
         close.setBounds (top.removeFromRight (64));
         top.removeFromRight (8);
         power.button.setBounds (top.removeFromRight (44));
+        if (headerExtra != nullptr) { top.removeFromRight (8); headerExtra->setBounds (top.removeFromRight (56)); }
         layoutContent (getLocalBounds().withTrimmedTop (36).reduced (12, 6));
     }
 
@@ -131,6 +150,7 @@ public:
 
 protected:
     virtual void layoutContent (juce::Rectangle<int>) = 0;
+    juce::Component* headerExtra = nullptr;   // e.g. LINK on the pre-saturation EQ
 
 private:
     juce::String titleText;
@@ -144,7 +164,9 @@ private:
 class EqCurve : public juce::Component, public juce::SettableTooltipClient
 {
 public:
-    EqCurve (juce::AudioProcessorValueTreeState& s, const juce::String& prefix) : state (s), p (prefix)
+    // bands: which of the 4 band slots exist (the pre-saturation EQ uses 1, 2 and 4)
+    EqCurve (juce::AudioProcessorValueTreeState& s, const juce::String& prefix, std::vector<int> bandList = { 0, 1, 2, 3 })
+        : state (s), p (prefix), bands (std::move (bandList))
     {
         for (int b = 0; b < 4; ++b)
         {
@@ -172,6 +194,7 @@ public:
         if (dragBand < 0) return;
         if (onParam != nullptr && onParam->getValue() < 0.5f)   // dragging a point switches the EQ in
             onParam->setValueNotifyingHost (1.0f);
+        if (freqParam[dragBand] == nullptr || gainParam[dragBand] == nullptr) { dragBand = -1; return; }
         freqParam[dragBand]->beginChangeGesture();
         gainParam[dragBand]->beginChangeGesture();
     }
@@ -207,7 +230,7 @@ public:
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
     {
         const int b = dragBand >= 0 ? dragBand : hitBand (e.position);
-        if (b < 0) return;
+        if (b < 0 || qParam[b] == nullptr) return;   // no Q on this band
         const float q = qParam[b]->convertFrom0to1 (qParam[b]->getValue());
         qParam[b]->beginChangeGesture();
         setParam (qParam[b], juce::jlimit (0.1f, 10.0f, q * std::pow (2.0f, w.deltaY * 2.0f)));
@@ -217,12 +240,13 @@ public:
     EqSettings read() const
     {
         EqSettings e;
-        auto v = [this] (const juce::String& id) { return state.getRawParameterValue (p + id)->load(); };
+        auto v = [this] (const juce::String& id, float def = 0.0f)
+        { auto* a = state.getRawParameterValue (p + id); return a != nullptr ? a->load() : def; };
         e.on = v ("EqOn") > 0.5f;
         for (int b = 0; b < 4; ++b)
         {
             const juce::String n (b + 1);
-            e.freq[b] = v ("EqFreq" + n); e.gain[b] = v ("EqGain" + n); e.q[b] = v ("EqQ" + n);
+            e.freq[b] = v ("EqFreq" + n, e.freq[b]); e.gain[b] = v ("EqGain" + n); e.q[b] = v ("EqQ" + n, 0.7f);
         }
         e.lowShelf = v ("EqLowShelf") > 0.5f;
         e.highShelf = v ("EqHighShelf") > 0.5f;
@@ -282,8 +306,9 @@ public:
         g.strokePath (path, juce::PathStrokeType (2.0f));
 
         // band handles (bigger when hovered or dragged), with a readout for the active one
-        for (int b = 0; b < 4; ++b)
+        for (size_t bi = 0; bi < bands.size(); ++bi)
         {
+            const int b = bands[bi];
             const float x = xOf (shown.freq[b]), y = yOf (shown.gain[b]);
             const bool active = b == hover || b == dragBand;
             const float rad = active ? 8.0f : 6.0f;
@@ -291,11 +316,13 @@ public:
             g.fillEllipse (x - rad, y - rad, 2.0f * rad, 2.0f * rad);
             g.setColour (GlowLookAndFeel::bg);
             g.setFont (juce::FontOptions (active ? 10.0f : 8.5f, juce::Font::bold));
-            g.drawText (juce::String (b + 1), juce::Rectangle<float> (x - rad, y - rad, 2.0f * rad, 2.0f * rad), juce::Justification::centred);
+            g.drawText (bands.size() == 3 ? juce::String::charToString ("LMH"[bi]) : juce::String (b + 1),
+                        juce::Rectangle<float> (x - rad, y - rad, 2.0f * rad, 2.0f * rad), juce::Justification::centred);
             if (active)
             {
                 const juce::String txt = (shown.freq[b] >= 1000.0f ? juce::String (shown.freq[b] / 1000.0f, 2) + " kHz" : juce::String ((int) shown.freq[b]) + " Hz")
-                                         + "   " + (shown.gain[b] > 0.05f ? "+" : "") + juce::String (shown.gain[b], 1) + " dB   Q " + juce::String (shown.q[b], 2);
+                                         + "   " + (shown.gain[b] > 0.05f ? "+" : "") + juce::String (shown.gain[b], 1) + " dB"
+                                         + (qParam[b] != nullptr ? "   Q " + juce::String (shown.q[b], 2) : juce::String());
                 auto box = juce::Rectangle<float> (x - 80.0f, y - rad - 22.0f, 160.0f, 16.0f).constrainedWithin (r.reduced (2.0f));
                 g.setColour (juce::Colours::black.withAlpha (0.7f));
                 g.fillRoundedRectangle (box, 3.0f);
@@ -312,7 +339,7 @@ private:
         const auto r = getLocalBounds().toFloat();
         int best = -1;
         float bestD = 14.0f;   // grab radius, px
-        for (int b = 0; b < 4; ++b)
+        for (int b : bands)
         {
             const float x = r.getX() + r.getWidth() * std::log (shown.freq[b] / 20.0f) / std::log (1000.0f);
             const float y = r.getCentreY() - r.getHeight() * 0.5f * juce::jlimit (-1.0f, 1.0f, shown.gain[b] / 20.0f) * 0.9f;
@@ -331,6 +358,7 @@ private:
 
     juce::AudioProcessorValueTreeState& state;
     juce::String p;
+    std::vector<int> bands;
     EqSettings shown;
     juce::RangedAudioParameter* freqParam[4] {}, * gainParam[4] {}, * qParam[4] {};
     juce::RangedAudioParameter* onParam = nullptr;
@@ -398,6 +426,84 @@ private:
     Knob freq[4], gain[4], q[4];
     juce::Label bandLabel[4];
     ToggleParam lowShelf, highShelf;
+};
+
+//==============================================================================
+// Expanded pre-saturation EQ: LOW (shelf/bell), MID (bell with Q), HIGH (shelf/bell), + LINK.
+// It shapes what hits the tubes; with LINK on, the exact opposite EQ is applied after them,
+// so you change what saturates without changing the overall tone.
+class PreEqPanel : public ModulePanel
+{
+public:
+    explicit PreEqPanel (juce::AudioProcessorValueTreeState& s)
+        : ModulePanel (s, "PRE-SATURATION EQ", "preEqOn"), curve (s, "pre", { 0, 1, 3 })
+    {
+        addAndMakeVisible (curve);
+        link.setup (*this, s, "preEqLink", "LINK");
+        headerExtra = &link.button;
+        link.button.setTooltip ("LINK: applies the opposite of this EQ after the tubes. You change what saturates "
+                                "(e.g. push the mids into the tubes) while the overall tone stays the same.");
+        const char* names[3] { "LOW", "MID", "HIGH" };
+        const int slot[3] { 1, 2, 4 };
+        const double defF[3] { 100.0, 1000.0, 6000.0 };
+        for (int b = 0; b < 3; ++b)
+        {
+            const juce::String n (slot[b]);
+            freq[b].setup (*this, s, "preEqFreq" + n, "FREQ", defF[b], 10.0f);
+            gain[b].setup (*this, s, "preEqGain" + n, "GAIN", 0.0, 10.0f);
+            freq[b].tip (juce::String (names[b]) + " band frequency");
+            gain[b].tip (juce::String (names[b]) + " band boost or cut, going into the tubes");
+            bandLabel[b].setText (names[b], juce::dontSendNotification);
+            bandLabel[b].setFont (juce::FontOptions (11.0f, juce::Font::bold));
+            bandLabel[b].setColour (juce::Label::textColourId, GlowLookAndFeel::text);
+            addAndMakeVisible (bandLabel[b]);
+        }
+        q.setup (*this, s, "preEqQ2", "Q", 0.7, 10.0f);
+        q.tip ("MID band width: low Q = broad, high Q = narrow (target a nasal or boxy spot)");
+        lowShelf.setup (*this, s, "preEqLowShelf", "SHELF");
+        highShelf.setup (*this, s, "preEqHighShelf", "SHELF");
+        lowShelf.button.setTooltip ("LOW band: shelf (on) or bell (off)");
+        highShelf.button.setTooltip ("HIGH band: shelf (on) or bell (off)");
+        curve.setTooltip ("What goes into the tubes. Drag a point for frequency and gain, Shift-drag for frequency only, "
+                          "scroll over MID for Q, double-click a point to reset its gain.");
+    }
+
+    void refresh() override { curve.refresh(); }
+
+protected:
+    void layoutContent (juce::Rectangle<int> r) override
+    {
+        curve.setBounds (r.removeFromTop (juce::jmin (140, r.getHeight() / 2)));
+        r.removeFromTop (6);
+        const int w = r.getWidth() / 3;
+        for (int b = 0; b < 3; ++b)
+        {
+            auto col = r.removeFromLeft (w).reduced (8, 0);
+            auto head = col.removeFromTop (20);
+            if (b == 0) lowShelf.button.setBounds (head.removeFromRight (52).reduced (0, 1));
+            if (b == 2) highShelf.button.setBounds (head.removeFromRight (52).reduced (0, 1));
+            bandLabel[b].setBounds (head);
+            const int kw = col.getWidth() / 3;
+            if (b == 1)
+            {
+                freq[b].place (col.removeFromLeft (kw), 14);
+                gain[b].place (col.removeFromLeft (kw), 14);
+                q.place (col, 14);
+            }
+            else
+            {
+                col = col.withSizeKeepingCentre (kw * 2, col.getHeight());
+                freq[b].place (col.removeFromLeft (kw), 14);
+                gain[b].place (col, 14);
+            }
+        }
+    }
+
+private:
+    EqCurve curve;
+    Knob freq[3], gain[3], q;
+    juce::Label bandLabel[3];
+    ToggleParam lowShelf, highShelf, link;
 };
 
 //==============================================================================

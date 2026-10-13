@@ -41,6 +41,11 @@ private:
     GlowProcessor& proc;
     GlowLookAndFeel lnf;
     Knob drive, even, odd, density;
+    Knob envAmount, envSpeed;                     // envelope follower (moves Drive with the input)
+    ModuleIcon preEqIcon { ModuleIcon::Kind::eq }; // expanded pre-saturation EQ
+    std::atomic<float>* preEqOnP = nullptr, * envAmtP = nullptr;
+    float shownModDrive = -1.0f;
+    void paintOverChildren (juce::Graphics&) override;
     Knob hpf, preFreq, preGain;
     Knob postFreq, postGain, output;
     juce::TextButton linkButton { "LINK" };

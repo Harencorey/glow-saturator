@@ -47,6 +47,7 @@ public:
     float wetGainReductionDb() const { return dsp.wetGainReductionDb(); }
     float autoGainDb() const { return dsp.getAutoGainDb(); }
     float takeDrivenness() { return dsp.takeDrivenness(); }
+    float modulatedDrive() const { return dsp.getModulatedDrive(); }
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
 
 private:
@@ -64,7 +65,8 @@ private:
     std::atomic<float>* pPostHz = nullptr;
     std::atomic<float>* pPostDb = nullptr;
     std::atomic<float>* pLink = nullptr;
-    std::atomic<float>* pOutput = nullptr, * pAuto = nullptr;
+    std::atomic<float>* pOutput = nullptr, * pAuto = nullptr, * pEnvAmt = nullptr, * pEnvSpeed = nullptr;
+    std::map<std::string, std::atomic<float>*> preEqP;
 
     // raw parameter pointers for one channel strip ("dry" or "wet")
     struct StripParams

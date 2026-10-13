@@ -74,6 +74,17 @@ int main (int argc, char** argv)
         }
         else if (key == "out")     p.outputDb = v;
         else if (key == "auto")    p.autoGain = v > 0.5f;
+        else if (key == "env")     p.envAmount = v;
+        else if (key == "envSpeed") p.envSpeed = v;
+        else if (key == "peq")     p.preEq.on = v > 0.5f;
+        else if (key == "peqLink") p.preEqLink = v > 0.5f;
+        else if (key == "peqLF")   p.preEq.freq[0] = v;
+        else if (key == "peqLG")   p.preEq.gain[0] = v;
+        else if (key == "peqMF")   p.preEq.freq[1] = v;
+        else if (key == "peqMG")   p.preEq.gain[1] = v;
+        else if (key == "peqMQ")   p.preEq.q[1] = v;
+        else if (key == "peqHF")   p.preEq.freq[3] = v;
+        else if (key == "peqHG")   p.preEq.gain[3] = v;
         else if (key == "block")   block = juce::jmax (1, (int) v);
         else if (key == "solo")    solo = (int) v;   // 1 = wet path only, 2 = dry path only (both still run)
         else return false;

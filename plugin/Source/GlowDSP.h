@@ -72,6 +72,10 @@ public:
         float postShelfHz = 5000.0f, postShelfDb = 0.0f;  // post-saturation high shelf
         float outputDb = 0.0f;  // -24..+12 dB
         bool autoGain = false;  // match output loudness to input (before the Output trim)
+        float envAmount = 0.0f; // -100..+100 %: envelope follower moves Drive with the input's dynamics
+        float envSpeed = 50.0f; // 0..100: slow (follows phrases) .. fast (follows hits)
+        EqSettings preEq;       // expanded pre-saturation EQ (bands 1 low, 2 mid, 4 high; band 3 unused)
+        bool preEqLink = false; // mirror it after the tubes at opposite gain
         ChannelStrip::Settings dry { ChannelStrip::kOffDb, {}, {} };   // dry path off by default
         ChannelStrip::Settings wet { 0.0f, {}, {} };                   // wet path at unity
     };
@@ -123,6 +127,14 @@ public:
             }
         knee1.build (DriveMap::st1.sharp);
         knee2.build (DriveMap::at (params.drive).sharp);
+        if (kneeCache.empty())
+        {
+            kneeCache.resize (101);   // ~0.8 MB, built once
+            for (int d = 0; d <= 100; ++d) kneeCache[(size_t) d].build (DriveMap::at ((float) d).sharp);
+        }
+        preEqF.prepare (sr, maxBlock);
+        postEqF.prepare (sr, maxBlock);
+        smEnvAmt.reset (sr, 0.05);
 
         smPre.reset (sr, 0.05);
         smPost.reset (sr, 0.05);
@@ -155,6 +167,9 @@ public:
         for (auto* k : { &kIn, &kOut }) for (auto& c : *k) { c[0].reset(); c[1].reset(); }
         inShort = outShort = inBlock = inLong = outLong = 0.0f;
         autoGainDb = autoApplied = 0.0f;
+        preEqF.reset(); postEqF.reset(); preEqF.snap(); postEqF.snap();
+        envLin = 0.0f; envAvgDb = -100.0f; envOffset = 0.0f; sampleCount = 0;
+        smEnvAmt.setCurrentAndTargetValue (params.envAmount);
     }
 
     // tube-stage oversampling + the channel strips' colour oversampling (same on both paths)
@@ -175,10 +190,30 @@ public:
 
     void process (juce::dsp::AudioBlock<float>& block)
     {
+        // The envelope follower moves Drive; run in short chunks while it's active so the
+        // movement is smooth whatever the host's buffer size.
+        // Chunks sit on a fixed grid of the running sample count, so the follower updates at
+        // the same moments whatever buffer size the host uses (realtime and bounces match).
+        const int total = (int) block.getNumSamples();
+        const bool chunked = std::abs (params.envAmount) > 0.01f || std::abs (envOffset) > 0.01f;
+        if (! chunked) { processChunk (block); sampleCount += total; return; }
+        for (int start = 0; start < total;)
+        {
+            const int len = juce::jmin (total - start, kEnvChunk - (int) (sampleCount % kEnvChunk));
+            auto sub = block.getSubBlock ((size_t) start, (size_t) len);
+            processChunk (sub);
+            start += len;
+            sampleCount += len;
+        }
+    }
+
+    void processChunk (juce::dsp::AudioBlock<float>& block)
+    {
         const int n = (int) block.getNumSamples();
         const int nch = juce::jmin ((int) block.getNumChannels(), channels);
         if (n == 0) return;
         measureLoudness (block, nch, n, true);   // input loudness, before anything touches it
+        followEnvelope (block, nch, n);          // envelope follower -> envOffset (Drive units)
 
         if (firstBlock)
         {
@@ -199,6 +234,14 @@ public:
         const bool anySolo = params.dry.solo || params.wet.solo;
         params.dry.audible = ! params.dry.mute && (! anySolo || params.dry.solo);
         params.wet.audible = ! params.wet.mute && (! anySolo || params.wet.solo);
+        // expanded pre-saturation EQ, and (Link) its mirror image after the tubes
+        preEqF.plan (params.preEq, true, n);
+        {
+            EqSettings mirror = params.preEq;
+            mirror.on = params.preEq.on && params.preEqLink;
+            for (auto& gdb : mirror.gain) gdb = -gdb;
+            postEqF.plan (mirror, true, n);
+        }
         const bool dryActive = dryStrip.isActive (params.dry);
         wetStrip.planEq (params.wet, wetStrip.isActive (params.wet), n);
         dryStrip.planEq (params.dry, dryActive, n);
@@ -212,6 +255,7 @@ public:
                 dryOversampler->reset();
                 for (auto& c : ch) for (auto& f : c.dryPhase) f.reset();
                 for (auto* a : { &hpfAp, &preAp, &postAp }) a->reset();
+                preEqF.resetAllpass(); postEqF.resetAllpass();
                 dryStale = false;
             }
             dry.copyFrom (block.getSubsetChannelBlock (0, (size_t) nch));
@@ -232,6 +276,8 @@ public:
             if (hpfStage.busy())  hpfAp.process (hpfStage, dry);
             if (preStage.busy())  preAp.process (preStage, dry);
             if (postStage.busy()) postAp.process (postStage, dry);
+            preEqF.allpassOnOtherPath (dry);
+            postEqF.allpassOnOtherPath (dry);
         }
         else
         {
@@ -240,7 +286,13 @@ public:
         }
 
         // drive/density are smoothed per block; gains are ramped per sample
-        const auto shape = DriveMap::at (smDrive.skip (n));
+        const float driveNow = juce::jlimit (0.0f, 100.0f, smDrive.skip (n) + envOffset);
+        modDrive.store (driveNow);
+        const auto shape = DriveMap::at (driveNow);
+        // while the follower moves Drive, use the pre-built curve for the nearest Drive step
+        // (rebuilding the curve every few ms would cost a lot of CPU for an inaudible gain)
+        const bool envOn = std::abs (envOffset) > 0.0f;
+        const KneeTable& kneeOut = envOn ? kneeCache[(size_t) juce::jlimit (0, 100, (int) std::lround (driveNow))] : knee2;
         // Density scales how hard the input stage is hit: 50 % = as measured,
         // 100 % = +12 dB hotter (more lopsided, more "breathing"), 0 % = clean input stage.
         const float dn = smDensity.skip (n) / 50.0f;
@@ -270,6 +322,7 @@ public:
         auto wetIn = block.getSubsetChannelBlock (0, (size_t) nch);
         if (hpfStage.busy()) hpfMain.process (hpfStage, wetIn);
         if (preStage.busy()) preMain.process (preStage, wetIn);
+        preEqF.process (wetIn);
         for (int c = 0; c < nch; ++c)
         {
             auto* x = block.getChannelPointer ((size_t) c);
@@ -291,7 +344,7 @@ public:
         auto up = oversampler->processSamplesUp (block);
         const int nu = (int) up.getNumSamples();
         const float gStep = (g1 - g0) / (float) nu;
-        if (knee2.needs (shape.sharp)) knee2.build (shape.sharp);   // only while Drive moves
+        if (! envOn && knee2.needs (shape.sharp)) knee2.build (shape.sharp);   // only while Drive moves
         double powOdd = 0.0, powRef = 0.0;   // block energy: actual vs nominal-Odd output stage
         float sumDist = 0.0f, sumOut = 0.0f; // for the glow meter: distortion vs clean-signal energy
         for (int c = 0; c < nch; ++c)
@@ -307,12 +360,12 @@ public:
                 // and its recovery is the ~half-second "breathing" after loud hits
                 const float v = (float) s.inter.process ((double) w) * k1inv;
                 // drive into the output stage
-                const float y = stage (v * g, knee2, shape.asym, shape.k2, evenGain);
+                const float y = stage (v * g, kneeOut, shape.asym, shape.k2, evenGain);
                 if (oddActive && (i & 3) == 0)
                 {
                     // silent reference: the output stage at nominal Odd. Only a loudness estimate
                     // is needed, so every 4th oversampled sample is plenty.
-                    const float yRef = stage (v * g * oddInv, knee2, shape.asym, shape.k2, evenGain);
+                    const float yRef = stage (v * g * oddInv, kneeOut, shape.asym, shape.k2, evenGain);
                     powOdd += (double) y * y;
                     powRef += (double) yRef * yRef;
                 }
@@ -362,6 +415,7 @@ public:
         }
         smPost.skip (n);
         if (postStage.busy()) postMain.process (postStage, wetIn);
+        postEqF.process (wetIn);
 
         // channel strips, then sum (a muted dry path costs nothing)
         auto wetBlock = block.getSubsetChannelBlock (0, (size_t) nch);
@@ -394,6 +448,7 @@ public:
         }
         smOut.skip (n);
         autoMeter.store (params.autoGain ? autoApplied : 0.0f);
+        if ((sampleCount + n) % kEnvChunk == 0) updateEnvOffset();
     }
 
     // UI: highest distortion-to-signal power ratio since the last call (then cleared)
@@ -487,6 +542,45 @@ private:
         }
     }
 
+    // Envelope follower: a peak follower on the input (stereo-linked) with attack/release set
+    // by Speed, compared with the material's own ~3 s average level. Moving above that average
+    // adds Drive (positive Amount) or removes it (negative): 4 Drive units per dB at 100 %,
+    // capped at +/-50. Relative to the average, so it works the same whatever the track level.
+    void followEnvelope (const juce::dsp::AudioBlock<float>& block, int nch, int n)
+    {
+        const float sp = juce::jlimit (0.0f, 1.0f, params.envSpeed / 100.0f);
+        const float atkMs = 60.0f * std::pow (1.0f / 60.0f, sp);    // 60 ms (slow) .. 1 ms (fast)
+        const float relMs = 1500.0f * std::pow (25.0f / 1500.0f, sp); // 1.5 s .. 25 ms
+        const float aA = std::exp (-1.0f / (atkMs * 0.001f * (float) sr));
+        const float aR = std::exp (-1.0f / (relMs * 0.001f * (float) sr));
+        for (int i = 0; i < n; ++i)
+        {
+            float x = 0.0f;
+            for (int c = 0; c < nch; ++c) x = juce::jmax (x, std::abs (block.getSample (c, i)));
+            envLin = x > envLin ? aA * envLin + (1.0f - aA) * x : aR * envLin + (1.0f - aR) * x;
+        }
+    }
+
+    // Once per 64-sample grid point (after that chunk is processed): the new Drive offset,
+    // used from the next chunk on. Fixed grid = same result at any host buffer size.
+    void updateEnvOffset()
+    {
+        smEnvAmt.setTargetValue (params.envAmount);
+        const float amt = smEnvAmt.skip (kEnvChunk);
+        const float envDb = juce::Decibels::gainToDecibels (envLin, -100.0f);
+        if (envDb > -60.0f)   // average only while there's signal (holds through silence)
+        {
+            const float aAvg = std::exp (-(float) kEnvChunk / (3.0f * (float) sr));
+            envAvgDb = envAvgDb < -90.0f ? envDb : aAvg * envAvgDb + (1.0f - aAvg) * envDb;
+        }
+        envOffset = (std::abs (amt) < 0.01f || envAvgDb < -90.0f || envDb < -60.0f) ? 0.0f
+                    : juce::jlimit (-50.0f, 50.0f, amt / 100.0f * 4.0f * (envDb - envAvgDb));
+    }
+
+public:
+    float getModulatedDrive() const { return modDrive.load(); }   // UI: Drive incl. envelope
+private:
+
     struct Channel
     {
         Biquad hp1, hp2, bump, dip, dc;    // fixed (measured) EQ
@@ -519,6 +613,13 @@ private:
     float oddMakeup = 1.0f, oddPowAvg = 0.0f, refPowAvg = 0.0f;
     Params params;
     KneeTable knee1, knee2;   // input stage (fixed), output stage (follows Drive)
+    std::vector<KneeTable> kneeCache;   // output-stage curve for Drive 0..100, used while the follower moves Drive
+    FourBandEQ preEqF, postEqF;         // expanded pre EQ (wet path), and its Link mirror after the tubes
+    static constexpr int kEnvChunk = 64;
+    juce::int64 sampleCount = 0;
+    float envLin = 0.0f, envAvgDb = -100.0f, envOffset = 0.0f;
+    juce::SmoothedValue<float> smEnvAmt;
+    std::atomic<float> modDrive { 25.0f };
     bool dryStale = true;     // dry filters skipped while the Dry fader is off
     std::array<std::array<Biquad, 2>, 2> kIn, kOut;   // K-weighting for auto gain (in / out, per channel)
     float inShort = 0.0f, outShort = 0.0f, inBlock = 0.0f, inLong = 0.0f, outLong = 0.0f;

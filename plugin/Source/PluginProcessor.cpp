@@ -19,6 +19,11 @@ GlowProcessor::GlowProcessor()
     pLink = apvts.getRawParameterValue ("shelfLink");
     pOutput = apvts.getRawParameterValue ("output");
     pAuto = apvts.getRawParameterValue ("autoGain");
+    pEnvAmt = apvts.getRawParameterValue ("envAmount");
+    pEnvSpeed = apvts.getRawParameterValue ("envSpeed");
+    for (auto id : { "preEqOn", "preEqLink", "preEqFreq1", "preEqGain1", "preEqLowShelf", "preEqFreq2", "preEqGain2",
+                     "preEqQ2", "preEqFreq4", "preEqGain4", "preEqHighShelf" })
+        preEqP[id] = apvts.getRawParameterValue (id);
     dryParams.bind (apvts, "dry");
     wetParams.bind (apvts, "wet");
 }
@@ -127,6 +132,29 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
     addFloat (l, "output", "Output", { -24.0f, 12.0f, 0.01f }, 0.0f, db);
     // keeps the output as loud as the input (slow, K-weighted), so moves don't fool your ears
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "autoGain", 1 }, "Auto Gain", false));
+
+    // envelope follower: moves Drive with the input's dynamics
+    addFloat (l, "envAmount", "Envelope Amount", { -100.0f, 100.0f, 0.1f }, 0.0f,
+              [] (float v, int) { return std::abs (v) < 0.05f ? String ("Off") : (v > 0.0f ? "+" : "") + String (v, 0) + " %"; });
+    addFloat (l, "envSpeed", "Envelope Speed", { 0.0f, 100.0f, 0.1f }, 50.0f,
+              [] (float v, int) { return v < 25.0f ? "Slow " + String (v, 0) : v > 75.0f ? "Fast " + String (v, 0) : String (v, 0); });
+
+    // expanded pre-saturation EQ: low (shelf/bell), mid (bell with Q), high (shelf/bell), + Link
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqOn", 1 }, "Pre EQ On", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqLink", 1 }, "Pre EQ Link", false));
+    addFloat (l, "preEqFreq1", "Pre EQ Low Freq", freqRange (20.0f, 2000.0f, 150.0f), 100.0f, hz);
+    addFloat (l, "preEqGain1", "Pre EQ Low Gain", { -15.0f, 15.0f, 0.01f }, 0.0f, db);
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqLowShelf", 1 }, "Pre EQ Low Shelf", true));
+    addFloat (l, "preEqFreq2", "Pre EQ Mid Freq", freqRange (100.0f, 10000.0f, 1000.0f), 1000.0f, hz);
+    addFloat (l, "preEqGain2", "Pre EQ Mid Gain", { -15.0f, 15.0f, 0.01f }, 0.0f, db);
+    {
+        NormalisableRange<float> qr (0.1f, 10.0f, 0.001f);
+        qr.setSkewForCentre (1.0f);
+        addFloat (l, "preEqQ2", "Pre EQ Mid Q", qr, 0.7f, [] (float v, int) { return String (v, 2); });
+    }
+    addFloat (l, "preEqFreq4", "Pre EQ High Freq", freqRange (1000.0f, 20000.0f, 5000.0f), 6000.0f, hz);
+    addFloat (l, "preEqGain4", "Pre EQ High Gain", { -15.0f, 15.0f, 0.01f }, 0.0f, db);
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqHighShelf", 1 }, "Pre EQ High Shelf", true));
 
     // Dry and Wet channel strips: fader, 4-band EQ, compressor
     auto levelText = [db] (float v, int len) { return v <= ChannelStrip::kOffDb + 0.05f ? String ("Off") : db (v, len); };
@@ -247,6 +275,20 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     p.postShelfDb = link ? -p.preShelfDb : pPostDb->load();
     p.outputDb = pOutput->load();
     p.autoGain = pAuto->load() > 0.5f;
+    p.envAmount = pEnvAmt->load();
+    p.envSpeed = pEnvSpeed->load();
+    {
+        auto v = [this] (const char* id) { return preEqP[id]->load(); };
+        auto& e = p.preEq;
+        e.on = v ("preEqOn") > 0.5f;
+        e.freq[0] = v ("preEqFreq1"); e.gain[0] = v ("preEqGain1"); e.q[0] = 0.7f;
+        e.freq[1] = v ("preEqFreq2"); e.gain[1] = v ("preEqGain2"); e.q[1] = v ("preEqQ2");
+        e.freq[2] = 2500.0f;          e.gain[2] = 0.0f;              e.q[2] = 1.0f;   // unused band
+        e.freq[3] = v ("preEqFreq4"); e.gain[3] = v ("preEqGain4"); e.q[3] = 0.7f;
+        e.lowShelf = v ("preEqLowShelf") > 0.5f;
+        e.highShelf = v ("preEqHighShelf") > 0.5f;
+        p.preEqLink = v ("preEqLink") > 0.5f;
+    }
     dryParams.read (p.dry);
     wetParams.read (p.wet);
     dsp.setParams (p);
