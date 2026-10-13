@@ -263,9 +263,15 @@ void GlowEditor::togglePanel (const String& prefix, ModuleIcon::Kind kind)
         panel = std::make_unique<EqPanel> (proc.apvts, prefix, name);
     else
         panel = std::make_unique<CompPanel> (proc.apvts, prefix, name, [this, prefix]
-                     { return prefix == "dry" ? proc.dryGainReductionDb() : proc.wetGainReductionDb(); });
+                     { return prefix == "dry" ? proc.dryGainReductionDb() : proc.wetGainReductionDb(); },
+                     [this, prefix] { return prefix == "dry" ? proc.dryMakeupDb() : proc.wetMakeupDb(); });
     panelPrefix = prefix;
     panelKind = kind;
+    if (kind == ModuleIcon::Kind::eq)
+    {
+        const int path = prefix == "dry" ? 1 : prefix == "wet" ? 2 : 3;
+        panel->setSoloHandler ([this, path] (int band) { proc.setEqSolo (path, band); });
+    }
     panel->onClose = [this] { MessageManager::callAsync ([sp = Component::SafePointer<GlowEditor> (this)]
                                                          { if (sp != nullptr) sp->closePanel(); }); };
     addAndMakeVisible (*panel);
@@ -276,6 +282,7 @@ void GlowEditor::togglePanel (const String& prefix, ModuleIcon::Kind kind)
 
 void GlowEditor::closePanel()
 {
+    proc.setEqSolo (0, -1);   // never leave a band soloed
     if (panel != nullptr) { removeChildComponent (panel.get()); panel.reset(); }
 }
 

@@ -45,6 +45,9 @@ public:
     float takeWetPeak() { return dsp.takeWetPeak(); }
     float dryGainReductionDb() const { return dsp.dryGainReductionDb(); }
     float wetGainReductionDb() const { return dsp.wetGainReductionDb(); }
+    float dryMakeupDb() const { return dsp.dryMakeupDb(); }
+    void setEqSolo (int path, int band) { dsp.setEqSolo (path, band); }
+    float wetMakeupDb() const { return dsp.wetMakeupDb(); }
     float autoGainDb() const { return dsp.getAutoGainDb(); }
     float takeDrivenness() { return dsp.takeDrivenness(); }
     float modulatedDrive() const { return dsp.getModulatedDrive(); }

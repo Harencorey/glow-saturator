@@ -97,7 +97,7 @@ private:
 };
 
 //==============================================================================
-// "Distressor-style" compressor: no threshold control - Input drives the signal into a
+// Input-driven compressor: no threshold control - Input drives the signal into a
 // fixed threshold, Output sets the level after. Ratio buttons with knee that gets harder
 // as the ratio goes up, a "Nuke" brickwall setting, optional detector high-pass (so lows
 // don't pump the comp), and two distortion colours.
@@ -146,6 +146,7 @@ public:
         for (auto& f : dcBlock) f.reset();
         grDb = 0.0f;
         env = 0.0f;
+        powIn = powOut = 0.0;
         lastComp = lastOut = 1.0f;
         lastMix = smMix.getCurrentValue();
     }
@@ -167,8 +168,9 @@ public:
             // switching on: clean detector, gains straight to their settings, Mix fades in
             active = true;
             smIn.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (s.inputDb));
-            smOut.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputGainDb (s)));
             reset();
+            makeupNow = -s.inputDb;   // first guess until it has measured the material
+            smOut.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputGainDb (s)));
         }
 
         const int n = (int) block.getNumSamples();
@@ -188,6 +190,7 @@ public:
         const float aEnv = std::exp (-1.0f / (0.010f * (float) sr));
 
         float minGain = 0.0f;
+        double sumIn = 0.0, sumOut = 0.0;   // for auto makeup: level before vs after compression
         for (int i = 0; i < n; ++i)
         {
             const float gIn = smIn.getNextValue();
@@ -212,10 +215,31 @@ public:
                                  : aRel * grDb + (1.0f - aRel) * target;
             minGain = juce::jmin (minGain, grDb);
             gComp[(size_t) i] = juce::Decibels::decibelsToGain (grDb) * gIn;
+            for (int c = 0; c < ch; ++c)
+            {
+                const double xin = block.getSample (c, i);
+                sumIn += xin * xin;
+                sumOut += xin * xin * (double) gComp[(size_t) i] * gComp[(size_t) i];
+            }
             gOut[(size_t) i] = smOut.getNextValue();
             gMix[(size_t) i] = smMix.getNextValue();
         }
         meterGr.store (minGain);
+
+        // Auto makeup, measured: the level going in vs. the level after Input + compression,
+        // averaged over ~1.5 s (only while there's signal), so whatever the compressor takes away
+        // comes back. Slow on purpose: it matches loudness, it can't pump.
+        const double pin = sumIn / juce::jmax (1, n * ch), pout = sumOut / juce::jmax (1, n * ch);
+        if (pin > 1.0e-8)
+        {
+            if (powIn <= 0.0 || powOut <= 0.0) { powIn = pin; powOut = pout; }
+            const double a = std::exp (-(double) n / (1.5 * sr));
+            powIn = a * powIn + (1.0 - a) * pin;
+            powOut = a * powOut + (1.0 - a) * pout;
+            if (powOut > 1.0e-20)
+                makeupNow = juce::jlimit (-36.0f, 30.0f, (float) (10.0 * std::log10 (powIn / powOut)));
+        }
+        meterMakeup.store (s.autoMakeup ? makeupNow : 0.0f);
         return true;
     }
 
@@ -251,23 +275,13 @@ public:
 
     float getGainReductionDb() const { return meterGr.load(); }
 
-    // Auto makeup: undoes the Input gain and the gain reduction the static curve gives at a
-    // reference detector level (kRefPeakDb). Measured: a track peaking around -12 dBFS stays
-    // within ~1 dB at any Input/Ratio. Quieter tracks come up louder as Input rises.
-    // Static (worked out from the settings, not the signal), so it can't pump or breathe.
-    static float makeupDb (float inputDb, int ratioIndex)
-    {
-        const int r = juce::jlimit (0, kNumRatios - 1, ratioIndex);
-        const float slope = 1.0f - 1.0f / kRatio[r];
-        return -inputDb - staticCurve (kRefPeakDb + inputDb, slope, kKnee[r]);
-    }
+    // UI: the makeup gain Auto Makeup is applying right now, in dB (0 when off)
+    float getMakeupDb() const { return meterMakeup.load(); }
 
 private:
-    static constexpr float kRefPeakDb = -21.0f;   // detector level it's calibrated at (~a track peaking near -12 dBFS)
-
-    static float outputGainDb (const CompSettings& s)
+    float outputGainDb (const CompSettings& s) const
     {
-        return s.outputDb + (s.autoMakeup ? makeupDb (s.inputDb, s.ratio) : 0.0f);
+        return s.outputDb + (s.autoMakeup ? makeupNow : 0.0f);
     }
 
     // static curve (soft knee): gain change in dB (<= 0) for a detector level in dB
@@ -308,6 +322,9 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smIn { 1.0f }, smOut { 1.0f };
     juce::SmoothedValue<float> smMix;
     float grDb = 0.0f, env = 0.0f, lastComp = 1.0f, lastOut = 1.0f, lastMix = 0.0f;
+    double powIn = 0.0, powOut = 0.0;
+    float makeupNow = 0.0f;
+    std::atomic<float> meterMakeup { 0.0f };
     bool active = false;
     std::atomic<float> meterGr { 0.0f };
 };
@@ -430,6 +447,7 @@ public:
     // UI thread: returns the peak since the last call and clears it
     float takePeak() { return meterPeak.exchange (0.0f); }
     float getGainReductionDb() const { return comp.getGainReductionDb(); }
+    float getMakeupDb() const { return comp.getMakeupDb(); }
 
 private:
     FourBandEQ eq;

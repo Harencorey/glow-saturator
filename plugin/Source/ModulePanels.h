@@ -147,6 +147,7 @@ public:
     }
 
     virtual void refresh() {}   // called by the editor's timer
+    virtual void setSoloHandler (std::function<void (int)>) {}   // EQ panels: Shift-solo a band
 
 protected:
     virtual void layoutContent (juce::Rectangle<int>) = 0;
@@ -188,6 +189,11 @@ public:
 
     void mouseExit (const juce::MouseEvent&) override { if (hover >= 0) { hover = -1; repaint(); } }
 
+    // Drag a point: frequency + gain.  Option/Alt: frequency only.  Cmd: Q (up = narrower).
+    // Shift (held): solo the band, i.e. hear only what that band is working on.
+    // Dragging is relative, so pressing/releasing a modifier mid-drag never makes the point jump.
+    std::function<void (int)> onSolo;   // band slot 0..3, or -1 to stop soloing
+
     void mouseDown (const juce::MouseEvent& e) override
     {
         dragBand = hitBand (e.position);
@@ -197,25 +203,43 @@ public:
         if (freqParam[dragBand] == nullptr || gainParam[dragBand] == nullptr) { dragBand = -1; return; }
         freqParam[dragBand]->beginChangeGesture();
         gainParam[dragBand]->beginChangeGesture();
+        if (qParam[dragBand] != nullptr) qParam[dragBand]->beginChangeGesture();
+        anchor (e);
+        updateSolo (e.mods.isShiftDown());
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
         if (dragBand < 0) return;
+        updateSolo (e.mods.isShiftDown());
+        const int mode = e.mods.isCommandDown() ? 2 : (e.mods.isAltDown() ? 1 : 0);   // 2 = Q, 1 = freq only
+        if (mode != anchorMode) anchor (e);
         const auto r = getLocalBounds().toFloat();
-        const float t = juce::jlimit (0.0f, 1.0f, (e.position.x - r.getX()) / r.getWidth());
-        const float f = 20.0f * std::pow (1000.0f, t);
-        const float db = juce::jlimit (-18.0f, 18.0f, (r.getCentreY() - e.position.y) / (r.getHeight() * 0.5f * 0.9f) * 20.0f);
-        setParam (freqParam[dragBand], f);
-        setParam (gainParam[dragBand], e.mods.isShiftDown() ? gainOf (dragBand) : db);   // shift: frequency only
+        const float dx = e.position.x - anchorPos.x, dy = e.position.y - anchorPos.y;
+        if (mode == 2)
+        {
+            if (qParam[dragBand] != nullptr)
+                setParam (qParam[dragBand], juce::jlimit (0.1f, 10.0f, anchorQ * std::pow (2.0f, -dy / 40.0f)));
+            return;
+        }
+        setParam (freqParam[dragBand], juce::jlimit (20.0f, 20000.0f, anchorF * std::pow (1000.0f, dx / r.getWidth())));
+        if (mode == 0)
+            setParam (gainParam[dragBand], juce::jlimit (-18.0f, 18.0f, anchorG - dy / (r.getHeight() * 0.5f * 0.9f) * 20.0f));
     }
 
     void mouseUp (const juce::MouseEvent&) override
     {
+        updateSolo (false);
         if (dragBand < 0) return;
         freqParam[dragBand]->endChangeGesture();
         gainParam[dragBand]->endChangeGesture();
+        if (qParam[dragBand] != nullptr) qParam[dragBand]->endChangeGesture();
         dragBand = -1;
+    }
+
+    void modifierKeysChanged (const juce::ModifierKeys& m) override
+    {
+        if (dragBand >= 0) updateSolo (m.isShiftDown());   // Shift pressed/released without moving
     }
 
     void mouseDoubleClick (const juce::MouseEvent& e) override
@@ -322,7 +346,8 @@ public:
             {
                 const juce::String txt = (shown.freq[b] >= 1000.0f ? juce::String (shown.freq[b] / 1000.0f, 2) + " kHz" : juce::String ((int) shown.freq[b]) + " Hz")
                                          + "   " + (shown.gain[b] > 0.05f ? "+" : "") + juce::String (shown.gain[b], 1) + " dB"
-                                         + (qParam[b] != nullptr ? "   Q " + juce::String (shown.q[b], 2) : juce::String());
+                                         + (qParam[b] != nullptr ? "   Q " + juce::String (shown.q[b], 2) : juce::String())
+                                         + (soloing && b == dragBand ? "   SOLO" : "");
                 auto box = juce::Rectangle<float> (x - 80.0f, y - rad - 22.0f, 160.0f, 16.0f).constrainedWithin (r.reduced (2.0f));
                 g.setColour (juce::Colours::black.withAlpha (0.7f));
                 g.fillRoundedRectangle (box, 3.0f);
@@ -363,12 +388,36 @@ private:
     juce::RangedAudioParameter* freqParam[4] {}, * gainParam[4] {}, * qParam[4] {};
     juce::RangedAudioParameter* onParam = nullptr;
     int hover = -1, dragBand = -1;
+    // relative-drag anchor (re-taken whenever the modifier mode changes)
+    juce::Point<float> anchorPos;
+    float anchorF = 1000.0f, anchorG = 0.0f, anchorQ = 1.0f;
+    int anchorMode = -1;
+    bool soloing = false;
+
+    float valueOf (juce::RangedAudioParameter* prm) const { return prm->convertFrom0to1 (prm->getValue()); }
+    void anchor (const juce::MouseEvent& e)
+    {
+        anchorPos = e.position;
+        anchorF = valueOf (freqParam[dragBand]);
+        anchorG = valueOf (gainParam[dragBand]);
+        anchorQ = qParam[dragBand] != nullptr ? valueOf (qParam[dragBand]) : 1.0f;
+        anchorMode = e.mods.isCommandDown() ? 2 : (e.mods.isAltDown() ? 1 : 0);
+    }
+    void updateSolo (bool want)
+    {
+        want = want && dragBand >= 0;
+        if (want == soloing) return;
+        soloing = want;
+        if (onSolo) onSolo (want ? dragBand : -1);
+        repaint();
+    }
 };
 
 //==============================================================================
 class EqPanel : public ModulePanel
 {
 public:
+    void setSoloHandler (std::function<void (int)> f) override { curve.onSolo = std::move (f); }
     EqPanel (juce::AudioProcessorValueTreeState& s, const juce::String& prefix, const juce::String& pathName)
         : ModulePanel (s, pathName + "  ·  EQ", prefix + "EqOn"), curve (s, prefix)
     {
@@ -388,7 +437,7 @@ public:
         }
         lowShelf.setup (*this, s, prefix + "EqLowShelf", "SHELF");
         highShelf.setup (*this, s, prefix + "EqHighShelf", "SHELF");
-        curve.setTooltip ("Drag a point to set frequency and gain. Shift-drag: frequency only. Scroll over a point: Q. Double-click a point: reset its gain.");
+        curve.setTooltip ("Drag a point: frequency and gain. Cmd-drag: Q. Option-drag: frequency only. Hold Shift while dragging: solo that band. Scroll over a point: Q. Double-click a point: reset its gain.");
         for (int b = 0; b < 4; ++b)
         {
             freq[b].tip ("Band " + juce::String (b + 1) + " frequency");
@@ -435,6 +484,7 @@ private:
 class PreEqPanel : public ModulePanel
 {
 public:
+    void setSoloHandler (std::function<void (int)> f) override { curve.onSolo = std::move (f); }
     explicit PreEqPanel (juce::AudioProcessorValueTreeState& s)
         : ModulePanel (s, "PRE-SATURATION EQ", "preEqOn"), curve (s, "pre", { 0, 1, 3 })
     {
@@ -464,8 +514,8 @@ public:
         highShelf.setup (*this, s, "preEqHighShelf", "SHELF");
         lowShelf.button.setTooltip ("LOW band: shelf (on) or bell (off)");
         highShelf.button.setTooltip ("HIGH band: shelf (on) or bell (off)");
-        curve.setTooltip ("What goes into the tubes. Drag a point for frequency and gain, Shift-drag for frequency only, "
-                          "scroll over MID for Q, double-click a point to reset its gain.");
+        curve.setTooltip ("What goes into the tubes. Drag a point: frequency and gain. Cmd-drag the MID point: Q. "
+                          "Option-drag: frequency only. Hold Shift while dragging: solo that band. Double-click a point: reset its gain.");
     }
 
     void refresh() override { curve.refresh(); }
@@ -547,9 +597,9 @@ class CompPanel : public ModulePanel
 {
 public:
     CompPanel (juce::AudioProcessorValueTreeState& s, const juce::String& prefix, const juce::String& pathName,
-               std::function<float()> grSource)
+               std::function<float()> grSource, std::function<float()> makeupSource)
         : ModulePanel (s, pathName + "  ·  COMP", prefix + "CompOn"),
-          ratio (s, prefix + "CompRatio", 4), colour (s, prefix + "CompColour", 3), getGr (std::move (grSource))
+          ratio (s, prefix + "CompRatio", 4), colour (s, prefix + "CompColour", 3), getGr (std::move (grSource)), getMakeup (std::move (makeupSource))
     {
         input.setup (*this, s, prefix + "CompInput", "INPUT", 0.0);
         attack.setup (*this, s, prefix + "CompAttack", "ATTACK", 5.0);
@@ -569,14 +619,12 @@ public:
         addAndMakeVisible (colour);
         hpf.setup (*this, s, prefix + "CompHpf", "DETECTOR HPF");
         autoMakeup.setup (*this, s, prefix + "CompAuto", "AUTO MAKEUP");
-        autoMakeup.button.setTooltip ("Automatic makeup gain from Input + Ratio: push Input for more compression without the level jumping. Output trims on top.");
+        autoMakeup.button.setTooltip ("Automatic makeup gain: measures what the compressor takes away (averaged over ~1.5 s) and gives it back, so the level stays put at any Input setting. Output trims on top.");
         makeupReadout.setJustificationType (juce::Justification::centred);
         makeupReadout.setFont (juce::FontOptions (10.5f));
         makeupReadout.setColour (juce::Label::textColourId, GlowLookAndFeel::textDim);
         addAndMakeVisible (makeupReadout);
         pAuto = s.getRawParameterValue (prefix + "CompAuto");
-        pInput = s.getRawParameterValue (prefix + "CompInput");
-        pRatio = s.getRawParameterValue (prefix + "CompRatio");
         for (auto* l : { &ratioLabel, &colourLabel })
         {
             l->setFont (juce::FontOptions (11.0f, juce::Font::bold));
@@ -591,11 +639,11 @@ public:
     void refresh() override
     {
         gr.set (getGr ? getGr() : 0.0f);
-        // the makeup AUTO MAKEUP is applying (it's set by Input + Ratio, so this is exact)
+        // the makeup AUTO MAKEUP is applying right now (measured from the audio)
         juce::String t;
         if (pAuto->load() > 0.5f)
         {
-            const float m = Compressor::makeupDb (pInput->load(), (int) std::lround (pRatio->load()));
+            const float m = getMakeup ? getMakeup() : 0.0f;
             t = "makeup " + juce::String (m > 0.05f ? "+" : "") + juce::String (std::abs (m) < 0.05f ? 0.0f : m, 1) + " dB";
         }
         if (t != makeupReadout.getText()) makeupReadout.setText (t, juce::dontSendNotification);
@@ -636,8 +684,8 @@ private:
     ChoiceButtons ratio, colour;
     ToggleParam hpf, autoMakeup;
     juce::Label makeupReadout;
-    std::atomic<float>* pAuto = nullptr, * pInput = nullptr, * pRatio = nullptr;
+    std::atomic<float>* pAuto = nullptr;
     juce::Label ratioLabel, colourLabel;
     GrMeter gr;
-    std::function<float()> getGr;
+    std::function<float()> getGr, getMakeup;
 };

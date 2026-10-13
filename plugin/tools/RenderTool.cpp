@@ -22,7 +22,7 @@ int main (int argc, char** argv)
     juce::File out (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
 
     GlowDSP::Params p;
-    int block = 512, solo = 0;
+    int block = 512, solo = 0, bsPath = 0, bsBand = -1;
     // settings before the first at= apply from the start; each at=<seconds> starts a new
     // automation point whose settings are applied on top of the previous ones at that time
     std::vector<std::pair<double, std::vector<juce::String>>> points { { 0.0, {} } };
@@ -32,7 +32,7 @@ int main (int argc, char** argv)
         if (arg.startsWith ("at=")) points.push_back ({ arg.substring (3).getDoubleValue(), {} });
         else points.back().second.push_back (arg);
     }
-    auto apply = [&p, &block, &solo] (const juce::String& arg) -> bool
+    auto apply = [&p, &block, &solo, &bsPath, &bsBand] (const juce::String& arg) -> bool
     {
         const auto key = arg.upToFirstOccurrenceOf ("=", false, false);
         const float v = arg.fromFirstOccurrenceOf ("=", false, false).getFloatValue();
@@ -88,6 +88,8 @@ int main (int argc, char** argv)
         else if (key == "peqHG")   p.preEq.gain[3] = v;
         else if (key == "block")   block = juce::jmax (1, (int) v);
         else if (key == "solo")    solo = (int) v;   // 1 = wet path only, 2 = dry path only (both still run)
+        else if (key == "bsPath")  bsPath = (int) v; // EQ band solo: path 1 dry, 2 wet, 3 pre ...
+        else if (key == "bsBand")  bsBand = (int) v; // ... band 0..3 (-1 = off)
         else return false;
         return true;
     };
@@ -108,6 +110,7 @@ int main (int argc, char** argv)
     dsp.prepare (reader->sampleRate, block, nch);
     dsp.setParams (p);
     dsp.testSolo = solo;
+    dsp.setEqSolo (bsPath, bsBand);
     const int lat = dsp.getLatencySamples();
 
     juce::AudioBuffer<float> buf (nch, len + lat + block);

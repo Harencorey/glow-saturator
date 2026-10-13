@@ -241,6 +241,10 @@ public:
         const bool anySolo = params.dry.solo || params.wet.solo;
         params.dry.audible = ! params.dry.mute && (! anySolo || params.dry.solo);
         params.wet.audible = ! params.wet.mute && (! anySolo || params.wet.solo);
+        // EQ band solo (Shift on an EQ point): only the path that EQ is on is heard
+        const int bandSoloPath = eqSoloPath.load();
+        if (bandSoloPath == 1) params.wet.audible = false;
+        if (bandSoloPath == 2 || bandSoloPath == 3) params.dry.audible = false;
         // expanded pre-saturation EQ, and (Link) its mirror image after the tubes
         preEqF.plan (params.preEq, true, n, dryHeard && ! params.preEqLink);
         {
@@ -455,6 +459,7 @@ public:
         }
         smOut.skip (n);
         autoMeter.store (params.autoGain ? autoApplied : 0.0f);
+        applyBandSolo (block, nch, n);
         if ((sampleCount + n) % kEnvChunk == 0) updateEnvOffset();
     }
 
@@ -593,6 +598,47 @@ public:
     float getModulatedDrive() const { return modDrive.load(); }   // UI: Drive incl. envelope
 private:
 
+    // EQ band solo: while you hold Shift on an EQ point, the output is band-passed to that
+    // band's region (bell: band-pass at its frequency and Q; low shelf: low-pass; high shelf:
+    // high-pass) so you hear exactly what it's working on. Fades in/out over 20 ms.
+    void applyBandSolo (juce::dsp::AudioBlock<float>& block, int nch, int n)
+    {
+        const int path = eqSoloPath.load(), band = eqSoloBand.load();
+        const bool want = path > 0 && band >= 0 && band < 4;
+        if (! want && soloMix <= 0.0f) return;
+        if (want)
+        {
+            const EqSettings& e = path == 1 ? params.dry.eq : path == 2 ? params.wet.eq : params.preEq;
+            const double f = juce::jlimit (20.0, 0.45 * sr, (double) e.freq[band]);
+            const double q = juce::jlimit (0.5, 10.0, (double) e.q[band]);
+            Biquad proto;
+            if (band == 0 && e.lowShelf)       proto.setLowPass (f, 0.70710678, sr);
+            else if (band == 3 && e.highShelf) proto.setHighPass (f, 0.70710678, sr);
+            else                               proto.setBandPass (f, q, sr);
+            for (auto& b : soloBp) { b.b0 = proto.b0; b.b1 = proto.b1; b.b2 = proto.b2; b.a1 = proto.a1; b.a2 = proto.a2; }
+            if (soloMix <= 0.0f) for (auto& b : soloBp) b.reset();
+        }
+        const float step = (float) (1.0 / (0.02 * sr)) * (want ? 1.0f : -1.0f);
+        float m0 = soloMix;
+        for (int c = 0; c < nch && c < 2; ++c)
+        {
+            auto* x = block.getChannelPointer ((size_t) c);
+            float m = m0;
+            for (int i = 0; i < n; ++i)
+            {
+                m = juce::jlimit (0.0f, 1.0f, m + step);
+                const double v = x[i];
+                x[i] = (float) (v + m * (soloBp[(size_t) c].process (v) - v));
+            }
+            soloMix = m;
+        }
+    }
+
+public:
+    // UI: solo an EQ band (path 1 = dry strip EQ, 2 = wet strip EQ, 3 = pre EQ; band 0..3), or -1 = off
+    void setEqSolo (int path, int band) { eqSoloBand = band; eqSoloPath = band < 0 ? 0 : path; }
+private:
+
     struct Channel
     {
         Biquad hp1, hp2, bump, dip, dc;    // fixed (measured) EQ
@@ -614,6 +660,8 @@ public:
     float takeWetPeak() { return wetStrip.takePeak(); }
     float dryGainReductionDb() const { return dryStrip.getGainReductionDb(); }
     float wetGainReductionDb() const { return wetStrip.getGainReductionDb(); }
+    float dryMakeupDb() const { return dryStrip.getMakeupDb(); }
+    float wetMakeupDb() const { return wetStrip.getMakeupDb(); }
 private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smPre { 1.0f }, smPost { 1.0f }, smOut { 1.0f };
     juce::SmoothedValue<float> smDrive, smDensity, smEven, smOdd;
@@ -638,6 +686,9 @@ private:
     float autoGainDb = 0.0f, autoApplied = 0.0f;
     std::atomic<float> autoMeter { 0.0f };
     std::atomic<float> drivenMeter { 0.0f };
+    std::atomic<int> eqSoloPath { 0 }, eqSoloBand { -1 };
+    std::array<Biquad, 2> soloBp;
+    float soloMix = 0.0f;
 public:
     int testSolo = 0;         // offline measurement only: 1 = output wet path only, 2 = dry only
 };

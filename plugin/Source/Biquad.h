@@ -28,6 +28,19 @@ struct Biquad
         set ((1 + c) / 2, -(1 + c), (1 + c) / 2, 1 + al, -2 * c, 1 - al);
     }
 
+    void setLowPass (double fc, double q, double sr) noexcept
+    {
+        const double w = 2.0 * M_PI * fc / sr, al = std::sin (w) / (2.0 * q), c = std::cos (w);
+        set ((1 - c) / 2, 1 - c, (1 - c) / 2, 1 + al, -2 * c, 1 - al);
+    }
+
+    // band-pass, 0 dB at the centre frequency
+    void setBandPass (double fc, double q, double sr) noexcept
+    {
+        const double w = 2.0 * M_PI * fc / sr, al = std::sin (w) / (2.0 * q), c = std::cos (w);
+        set (al, 0, -al, 1 + al, -2 * c, 1 - al);
+    }
+
     // 1st-order bilinear high-pass (a coupling capacitor), stored in biquad form.
     void setOnePoleHighPass (double fc, double sr) noexcept
     {
