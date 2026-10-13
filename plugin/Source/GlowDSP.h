@@ -599,7 +599,7 @@ public:
 private:
 
     // EQ band solo: while you hold Shift on an EQ point, the output is band-passed to that
-    // band's region (bell: band-pass at its frequency and Q; low shelf: low-pass; high shelf:
+    // band's region (bell: band-pass at its exact frequency and Q; low shelf: low-pass; high shelf:
     // high-pass) so you hear exactly what it's working on. Fades in/out over 20 ms.
     void applyBandSolo (juce::dsp::AudioBlock<float>& block, int nch, int n)
     {
@@ -610,7 +610,7 @@ private:
         {
             const EqSettings& e = path == 1 ? params.dry.eq : path == 2 ? params.wet.eq : params.preEq;
             const double f = juce::jlimit (20.0, 0.45 * sr, (double) e.freq[band]);
-            const double q = juce::jlimit (0.5, 10.0, (double) e.q[band]);
+            const double q = juce::jlimit (0.1, 10.0, (double) e.q[band]);   // same range as the band's Q
             Biquad proto;
             if (band == 0 && e.lowShelf)       proto.setLowPass (f, 0.70710678, sr);
             else if (band == 3 && e.highShelf) proto.setHighPass (f, 0.70710678, sr);

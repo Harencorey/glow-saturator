@@ -177,6 +177,7 @@ public:
             freqParam[b] = state.getParameter (p + "EqFreq" + n);
             gainParam[b] = state.getParameter (p + "EqGain" + n);
             qParam[b] = state.getParameter (p + "EqQ" + n);
+            bandOnParam[b] = state.getParameter (p + "EqBand" + n + "On");
         }
         onParam = state.getParameter (p + "EqOn");
         setRepaintsOnMouseActivity (false);
@@ -244,13 +245,21 @@ public:
         if (dragBand >= 0) updateSolo (m.isShiftDown());   // Shift pressed/released without moving
     }
 
+    // Double-click a point: bypass / re-engage that band.  Option-double-click: reset its gain.
     void mouseDoubleClick (const juce::MouseEvent& e) override
     {
         const int b = hitBand (e.position);
         if (b < 0) return;
-        gainParam[b]->beginChangeGesture();
-        setParam (gainParam[b], 0.0f);
-        gainParam[b]->endChangeGesture();
+        if (e.mods.isAltDown() || bandOnParam[b] == nullptr)
+        {
+            gainParam[b]->beginChangeGesture();
+            setParam (gainParam[b], 0.0f);
+            gainParam[b]->endChangeGesture();
+            return;
+        }
+        bandOnParam[b]->beginChangeGesture();
+        bandOnParam[b]->setValueNotifyingHost (bandOnParam[b]->getValue() > 0.5f ? 0.0f : 1.0f);
+        bandOnParam[b]->endChangeGesture();
     }
 
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
@@ -276,6 +285,7 @@ public:
         }
         e.lowShelf = v ("EqLowShelf") > 0.5f;
         e.highShelf = v ("EqHighShelf") > 0.5f;
+        for (int b = 0; b < 4; ++b) e.bandOn[b] = v ("EqBand" + juce::String (b + 1) + "On", 1.0f) > 0.5f;
         return e;
     }
 
@@ -284,7 +294,7 @@ public:
         const auto e = read();
         bool same = e.on == shown.on && e.lowShelf == shown.lowShelf && e.highShelf == shown.highShelf;
         for (int b = 0; b < 4 && same; ++b)
-            same = std::abs (e.freq[b] - shown.freq[b]) < 1.0e-3f && std::abs (e.gain[b] - shown.gain[b]) < 1.0e-4f
+            same = e.bandOn[b] == shown.bandOn[b] && std::abs (e.freq[b] - shown.freq[b]) < 1.0e-3f && std::abs (e.gain[b] - shown.gain[b]) < 1.0e-4f
                    && std::abs (e.q[b] - shown.q[b]) < 1.0e-4f;
         if (! same) { shown = e; repaint(); }
     }
@@ -328,7 +338,7 @@ public:
             else if (b == 3 && shown.highShelf) lo = f0;
             else
             {
-                const double q = juce::jlimit (0.5, 10.0, (double) shown.q[b]);
+                const double q = juce::jlimit (0.1, 10.0, (double) shown.q[b]);
                 const double k = 1.0 / (2.0 * q);
                 lo = f0 * (std::sqrt (1.0 + k * k) - k);
                 hi = f0 * (std::sqrt (1.0 + k * k) + k);
@@ -378,7 +388,7 @@ public:
             g.strokePath (path, juce::PathStrokeType (1.2f));
             EqSettings one = shown;
             one.on = true;
-            for (int b = 0; b < 4; ++b) if (b != dragBand) one.gain[b] = 0.0f;
+            for (int b = 0; b < 4; ++b) one.bandOn[b] = b == dragBand && shown.bandOn[b];
             const auto bandPath = curvePath (one);
             g.setColour (GlowLookAndFeel::amber.withAlpha (0.18f));
             g.fillPath (fillUnder (bandPath));
@@ -400,10 +410,21 @@ public:
             const float x = xOf (shown.freq[b]), y = yOf (shown.gain[b]);
             const bool active = solo ? b == dragBand : (b == hover || b == dragBand);
             const bool greyed = solo && b != dragBand;
+            const bool bypassed = ! shown.bandOn[b];
             const float rad = active ? 8.0f : 6.0f;
-            g.setColour (active ? GlowLookAndFeel::text : greyed ? GlowLookAndFeel::textDim.withAlpha (0.35f) : col);
-            g.fillEllipse (x - rad, y - rad, 2.0f * rad, 2.0f * rad);
-            g.setColour (GlowLookAndFeel::bg);
+            const auto hc = active ? GlowLookAndFeel::text : (greyed || bypassed) ? GlowLookAndFeel::textDim.withAlpha (bypassed ? 0.6f : 0.35f) : col;
+            g.setColour (hc);
+            if (bypassed)
+            {
+                // bypassed band: hollow ring with its number, so it's clearly out but still grabbable
+                g.setColour (GlowLookAndFeel::bg.withAlpha (0.85f));
+                g.fillEllipse (x - rad, y - rad, 2.0f * rad, 2.0f * rad);
+                g.setColour (hc);
+                g.drawEllipse (x - rad + 0.75f, y - rad + 0.75f, 2.0f * rad - 1.5f, 2.0f * rad - 1.5f, 1.5f);
+            }
+            else
+                g.fillEllipse (x - rad, y - rad, 2.0f * rad, 2.0f * rad);
+            g.setColour (bypassed ? hc : GlowLookAndFeel::bg);
             g.setFont (juce::FontOptions (active ? 10.0f : 8.5f, juce::Font::bold));
             g.drawText (bands.size() == 3 ? juce::String::charToString ("LMH"[bi]) : juce::String (b + 1),
                         juce::Rectangle<float> (x - rad, y - rad, 2.0f * rad, 2.0f * rad), juce::Justification::centred);
@@ -412,6 +433,7 @@ public:
                 const juce::String txt = (shown.freq[b] >= 1000.0f ? juce::String (shown.freq[b] / 1000.0f, 2) + " kHz" : juce::String ((int) shown.freq[b]) + " Hz")
                                          + "   " + (shown.gain[b] > 0.05f ? "+" : "") + juce::String (shown.gain[b], 1) + " dB"
                                          + (qParam[b] != nullptr ? "   Q " + juce::String (shown.q[b], 2) : juce::String())
+                                         + (bypassed ? "   OFF" : "")
                                          + (soloing && b == dragBand ? "   SOLO" : "");
                 auto box = juce::Rectangle<float> (x - 80.0f, y - rad - 22.0f, 160.0f, 16.0f).constrainedWithin (r.reduced (2.0f));
                 g.setColour (juce::Colours::black.withAlpha (0.7f));
@@ -451,6 +473,7 @@ private:
     std::vector<int> bands;
     EqSettings shown;
     juce::RangedAudioParameter* freqParam[4] {}, * gainParam[4] {}, * qParam[4] {};
+    juce::RangedAudioParameter* bandOnParam[4] {};
     juce::RangedAudioParameter* onParam = nullptr;
     int hover = -1, dragBand = -1;
     // relative-drag anchor (re-taken whenever the modifier mode changes)
@@ -479,6 +502,21 @@ private:
 };
 
 //==============================================================================
+// A bypassed band: its name reads "... OFF" and its knobs dim (they still work).
+inline void showBandOn (juce::Label& label, const juce::String& name, const std::atomic<float>* onParam,
+                        std::initializer_list<Knob*> knobs)
+{
+    const bool on = onParam == nullptr || onParam->load() > 0.5f;
+    const auto text = on ? name : name + "  OFF";
+    if (label.getText() != text)
+    {
+        label.setText (text, juce::dontSendNotification);
+        label.setColour (juce::Label::textColourId, on ? GlowLookAndFeel::text : GlowLookAndFeel::textDim);
+        for (auto* k : knobs) { k->slider.setAlpha (on ? 1.0f : 0.45f); k->label.setAlpha (on ? 1.0f : 0.45f); }
+    }
+}
+
+//==============================================================================
 class EqPanel : public ModulePanel
 {
 public:
@@ -495,6 +533,7 @@ public:
             gain[b].setup (*this, s, prefix + "EqGain" + n, "GAIN", 0.0, 10.0f);
             q[b].setup (*this, s, prefix + "EqQ" + n, "Q", defQ[b], 10.0f);
             bandLabel[b].setText ("BAND " + n, juce::dontSendNotification);
+            bandOn[b] = s.getRawParameterValue (prefix + "EqBand" + n + "On");
             bandLabel[b].setFont (juce::FontOptions (11.0f, juce::Font::bold));
             bandLabel[b].setJustificationType (juce::Justification::centredLeft);
             bandLabel[b].setColour (juce::Label::textColourId, GlowLookAndFeel::text);
@@ -502,7 +541,7 @@ public:
         }
         lowShelf.setup (*this, s, prefix + "EqLowShelf", "SHELF");
         highShelf.setup (*this, s, prefix + "EqHighShelf", "SHELF");
-        curve.setTooltip ("Drag a point: frequency and gain. Cmd-drag: Q. Option-drag: frequency only. Hold Shift while dragging: solo that band. Scroll over a point: Q. Double-click a point: reset its gain.");
+        curve.setTooltip ("Drag a point: frequency and gain. Cmd-drag: Q. Option-drag: frequency only. Hold Shift while dragging: solo that band. Scroll over a point: Q. Double-click a point: bypass/re-engage that band. Option-double-click: reset its gain.");
         for (int b = 0; b < 4; ++b)
         {
             freq[b].tip ("Band " + juce::String (b + 1) + " frequency");
@@ -513,7 +552,12 @@ public:
         highShelf.button.setTooltip ("Band 4: high shelf (on) or bell (off)");
     }
 
-    void refresh() override { curve.refresh(); }
+    void refresh() override
+    {
+        curve.refresh();
+        for (int b = 0; b < 4; ++b)
+            showBandOn (bandLabel[b], "BAND " + juce::String (b + 1), bandOn[b], { &freq[b], &gain[b], &q[b] });
+    }
 
 protected:
     void layoutContent (juce::Rectangle<int> r) override
@@ -539,6 +583,7 @@ private:
     EqCurve curve;
     Knob freq[4], gain[4], q[4];
     juce::Label bandLabel[4];
+    std::atomic<float>* bandOn[4] {};
     ToggleParam lowShelf, highShelf;
 };
 
@@ -569,6 +614,7 @@ public:
             freq[b].tip (juce::String (names[b]) + " band frequency");
             gain[b].tip (juce::String (names[b]) + " band boost or cut, going into the tubes");
             bandLabel[b].setText (names[b], juce::dontSendNotification);
+            bandOn[b] = s.getRawParameterValue ("preEqBand" + n + "On");
             bandLabel[b].setFont (juce::FontOptions (11.0f, juce::Font::bold));
             bandLabel[b].setColour (juce::Label::textColourId, GlowLookAndFeel::text);
             addAndMakeVisible (bandLabel[b]);
@@ -580,10 +626,18 @@ public:
         lowShelf.button.setTooltip ("LOW band: shelf (on) or bell (off)");
         highShelf.button.setTooltip ("HIGH band: shelf (on) or bell (off)");
         curve.setTooltip ("What goes into the tubes. Drag a point: frequency and gain. Cmd-drag the MID point: Q. "
-                          "Option-drag: frequency only. Hold Shift while dragging: solo that band. Double-click a point: reset its gain.");
+                          "Option-drag: frequency only. Hold Shift while dragging: solo that band. Double-click a point: bypass/re-engage that band. "
+                          "Option-double-click: reset its gain.");
     }
 
-    void refresh() override { curve.refresh(); }
+    void refresh() override
+    {
+        curve.refresh();
+        const char* names[3] { "LOW", "MID", "HIGH" };
+        for (int b = 0; b < 3; ++b)
+            showBandOn (bandLabel[b], names[b], bandOn[b], b == 1 ? std::initializer_list<Knob*> { &freq[b], &gain[b], &q }
+                                                                   : std::initializer_list<Knob*> { &freq[b], &gain[b] });
+    }
 
 protected:
     void layoutContent (juce::Rectangle<int> r) override
@@ -618,6 +672,7 @@ private:
     EqCurve curve;
     Knob freq[3], gain[3], q;
     juce::Label bandLabel[3];
+    std::atomic<float>* bandOn[3] {};
     ToggleParam lowShelf, highShelf, link;
 };
 

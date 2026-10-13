@@ -76,7 +76,7 @@ private:
     {
         std::atomic<float>* level = nullptr;
         std::atomic<float>* eqOn = nullptr;
-        std::atomic<float>* f[4] {}, * g[4] {}, * q[4] {};
+        std::atomic<float>* f[4] {}, * g[4] {}, * q[4] {}, * bandOn[4] {};
         std::atomic<float>* lowShelf = nullptr, * highShelf = nullptr;
         std::atomic<float>* compOn = nullptr, * in = nullptr, * atk = nullptr, * rel = nullptr;
         std::atomic<float>* ratio = nullptr, * out = nullptr, * colour = nullptr, * hpf = nullptr, * mix = nullptr;

@@ -55,6 +55,7 @@ int main (int argc, char** argv)
             else if (k.length() == 2 && k[0] == 'F' && b >= 0 && b < 4) st.eq.freq[b] = v;
             else if (k.length() == 2 && k[0] == 'G' && b >= 0 && b < 4) st.eq.gain[b] = v;
             else if (k.length() == 2 && k[0] == 'Q' && b >= 0 && b < 4) st.eq.q[b] = v;
+            else if (k.length() == 2 && k[0] == 'B' && b >= 0 && b < 4) st.eq.bandOn[b] = v > 0.5f;   // band in/out
             else if (k == "LS")     st.eq.lowShelf = v > 0.5f;
             else if (k == "HS")     st.eq.highShelf = v > 0.5f;
             else if (k == "Comp")   st.comp.on = v > 0.5f;

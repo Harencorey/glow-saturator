@@ -19,6 +19,7 @@ struct EqSettings
     float q[4] { 0.7f, 1.0f, 1.0f, 0.7f };
     bool lowShelf = true;    // band 1: shelf or bell
     bool highShelf = true;   // band 4: shelf or bell
+    bool bandOn[4] { true, true, true, true };   // per-band bypass (double-click a point)
 };
 
 // 4-band EQ built from phase-coherent bands (see PhaseCoherent.h). The path that owns the
@@ -51,7 +52,7 @@ public:
                 st.setKind (k);
                 st.snapNext();
             }
-            st.plan (s.on && allowed, s.freq[b], s.gain[b], s.q[b], n, coherent);
+            st.plan (s.on && allowed && s.bandOn[b], s.freq[b], s.gain[b], s.q[b], n, coherent);
         }
     }
 
@@ -76,7 +77,7 @@ public:
     {
         double total = 0.0;
         for (int b = 0; b < 4; ++b)
-            if (std::abs (s.gain[b]) >= 0.01f)
+            if (s.bandOn[b] && std::abs (s.gain[b]) >= 0.01f)
                 total += Coherent::Stage::responseDb (kindFor (b, s.lowShelf, s.highShelf), s.freq[b], s.gain[b],
                                                       juce::jmax (0.1f, s.q[b]), f, sampleRate);
         return (float) total;

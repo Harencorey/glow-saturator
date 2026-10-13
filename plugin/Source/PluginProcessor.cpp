@@ -22,7 +22,7 @@ GlowProcessor::GlowProcessor()
     pEnvAmt = apvts.getRawParameterValue ("envAmount");
     pEnvSpeed = apvts.getRawParameterValue ("envSpeed");
     for (auto id : { "preEqOn", "preEqLink", "preEqFreq1", "preEqGain1", "preEqLowShelf", "preEqFreq2", "preEqGain2",
-                     "preEqQ2", "preEqFreq4", "preEqGain4", "preEqHighShelf" })
+                     "preEqQ2", "preEqFreq4", "preEqGain4", "preEqHighShelf", "preEqBand1On", "preEqBand2On", "preEqBand4On" })
         preEqP[id] = apvts.getRawParameterValue (id);
     dryParams.bind (apvts, "dry");
     wetParams.bind (apvts, "wet");
@@ -38,6 +38,7 @@ void GlowProcessor::StripParams::bind (juce::AudioProcessorValueTreeState& s, co
         f[b] = get ("EqFreq" + juce::String (b + 1));
         g[b] = get ("EqGain" + juce::String (b + 1));
         q[b] = get ("EqQ" + juce::String (b + 1));
+        bandOn[b] = get ("EqBand" + juce::String (b + 1) + "On");
     }
     lowShelf = get ("EqLowShelf");
     highShelf = get ("EqHighShelf");
@@ -60,7 +61,11 @@ void GlowProcessor::StripParams::read (ChannelStrip::Settings& st) const
 {
     st.levelDb = level->load();
     st.eq.on = eqOn->load() > 0.5f;
-    for (int b = 0; b < 4; ++b) { st.eq.freq[b] = f[b]->load(); st.eq.gain[b] = g[b]->load(); st.eq.q[b] = q[b]->load(); }
+    for (int b = 0; b < 4; ++b)
+    {
+        st.eq.freq[b] = f[b]->load(); st.eq.gain[b] = g[b]->load(); st.eq.q[b] = q[b]->load();
+        st.eq.bandOn[b] = bandOn[b]->load() > 0.5f;
+    }
     st.eq.lowShelf = lowShelf->load() > 0.5f;
     st.eq.highShelf = highShelf->load() > 0.5f;
     st.comp.on = compOn->load() > 0.5f;
@@ -155,6 +160,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
     addFloat (l, "preEqFreq4", "Pre EQ High Freq", freqRange (1000.0f, 20000.0f, 5000.0f), 6000.0f, hz);
     addFloat (l, "preEqGain4", "Pre EQ High Gain", { -15.0f, 15.0f, 0.01f }, 0.0f, db);
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqHighShelf", 1 }, "Pre EQ High Shelf", true));
+    // per-band bypass (double-click a point on the curve)
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqBand1On", 1 }, "Pre EQ Low On", true));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqBand2On", 1 }, "Pre EQ Mid On", true));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqBand4On", 1 }, "Pre EQ High On", true));
 
     // Dry and Wet channel strips: fader, 4-band EQ, compressor
     auto levelText = [db] (float v, int len) { return v <= ChannelStrip::kOffDb + 0.05f ? String ("Off") : db (v, len); };
@@ -182,6 +191,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
         }
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "EqLowShelf", 1 }, P + "EQ 1 Shelf", true));
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "EqHighShelf", 1 }, P + "EQ 4 Shelf", true));
+        for (int b = 0; b < 4; ++b)   // per-band bypass (double-click a point on the curve)
+            l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "EqBand" + String (b + 1) + "On", 1 },
+                                                          P + "EQ " + String (b + 1) + " On", true));
 
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompOn", 1 }, P + "Comp On", false));
         addFloat (l, id ("CompInput").c_str(), (P + "Comp Input").toRawUTF8(), { -12.0f, 36.0f, 0.01f }, 0.0f, db);
@@ -288,6 +300,9 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
         e.freq[3] = v ("preEqFreq4"); e.gain[3] = v ("preEqGain4"); e.q[3] = 0.7f;
         e.lowShelf = v ("preEqLowShelf") > 0.5f;
         e.highShelf = v ("preEqHighShelf") > 0.5f;
+        e.bandOn[0] = v ("preEqBand1On") > 0.5f;
+        e.bandOn[1] = v ("preEqBand2On") > 0.5f;
+        e.bandOn[3] = v ("preEqBand4On") > 0.5f;
         p.preEqLink = v ("preEqLink") > 0.5f;
     }
     dryParams.read (p.dry);
