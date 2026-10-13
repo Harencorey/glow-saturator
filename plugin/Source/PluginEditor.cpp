@@ -23,6 +23,9 @@ GlowLookAndFeel::GlowLookAndFeel()
     setColour (TextEditor::outlineColourId, textDim.withAlpha (0.5f));
     setColour (TextEditor::focusedOutlineColourId, amber);
     setColour (CaretComponent::caretColourId, amber);
+    setColour (TooltipWindow::backgroundColourId, panel.brighter (0.15f));
+    setColour (TooltipWindow::textColourId, text);
+    setColour (TooltipWindow::outlineColourId, amberDim);
 }
 
 void GlowLookAndFeel::drawRotarySlider (Graphics& g, int x, int y, int w, int h, float pos,
@@ -141,7 +144,20 @@ GlowEditor::GlowEditor (GlowProcessor& p) : AudioProcessorEditor (p), proc (p), 
     output.setup (*this, s, "output", "OUTPUT", 0.0);
 
     linkButton.setClickingTogglesState (true);
-    linkButton.setTooltip ("Post shelf mirrors the pre shelf: highs hit the tubes harder or softer, overall balance stays put");
+    linkButton.setTooltip ("LINK: the post shelf mirrors the pre shelf at the opposite gain. The highs hit the tubes harder or "
+                           "softer while the overall tone stays about the same.");
+    drive.tip ("DRIVE: how hard the tubes are pushed, for more of both even and odd harmonics. The glow shows how hard "
+               "they're working on the incoming audio.");
+    even.tip ("EVEN: 2nd/4th harmonics (warmth, thickness). 50% = as voiced, 0% = none, 100% = 3x.");
+    odd.tip ("ODD: 3rd/5th harmonics (edge, grit, clipping). 50% = as voiced; the level is matched for you.");
+    density.tip ("DENSITY: how hard the first tube stage is hit. More = lopsided bloom and 'breathing' after loud hits.");
+    hpf.tip ("HIGH-PASS: cuts lows before the tubes (24 dB/oct) so they don't muddy the saturation. Bottom = Off, then 20 Hz to 1 kHz.");
+    preFreqTip = "PRE SHELF frequency: where the high shelf before the tubes starts";
+    preGainTip = "PRE SHELF gain: boost to make the top end saturate more, cut to keep it smoother";
+    postFreqTip = "POST SHELF frequency: where the high shelf after the tubes starts";
+    postGainTip = "POST SHELF gain: brighten or tame the top of the saturated sound";
+    preFreq.tip (preFreqTip); preGain.tip (preGainTip); postFreq.tip (postFreqTip); postGain.tip (postGainTip);
+    output.tip ("OUTPUT: final level trim, after Dry and Wet are mixed (and after Auto)");
     addAndMakeVisible (linkButton);
     autoGain.setup (*this, s, "autoGain", "AUTO");
     autoGain.button.setTooltip ("Auto gain: keeps the output as loud as the input (slow, ~3 s), so Drive/EQ/comp moves "
@@ -198,10 +214,26 @@ void GlowEditor::setupStrip (Strip& st, const String& prefix, const String& name
     st.attach = std::make_unique<AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, prefix + "Level", st.fader);
     st.eqOn = proc.apvts.getRawParameterValue (prefix + "EqOn");
     st.compOn = proc.apvts.getRawParameterValue (prefix + "CompOn");
-    st.eqIcon.setTooltip (name + " path EQ");
-    st.compIcon.setTooltip (name + " path compressor");
+    st.eqIcon.setTooltip (name + " EQ: click to open it, double-click to switch it on or off (lit = on)");
+    st.compIcon.setTooltip (name + " compressor: click to open it, double-click to switch it on or off (lit = on)");
+    st.eqIcon.onDoubleClick = [this, prefix] { toggleParam (prefix + "EqOn"); };
+    st.compIcon.onDoubleClick = [this, prefix] { toggleParam (prefix + "CompOn"); };
+    st.fader.setTooltip (prefix == "dry" ? "DRY level: the clean, unsaturated signal blended in parallel (bottom = Off)"
+                                         : "WET level: the saturated signal");
+    st.meter.setTooltip (name + " level (after its fader)");
     st.eqIcon.onClick = [this, prefix] { togglePanel (prefix, ModuleIcon::Kind::eq); };
     st.compIcon.onClick = [this, prefix] { togglePanel (prefix, ModuleIcon::Kind::comp); };
+}
+
+// Flip a bool parameter as one host gesture (undoable / automatable like a click)
+void GlowEditor::toggleParam (const String& id)
+{
+    if (auto* p = proc.apvts.getParameter (id))
+    {
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f);
+        p->endChangeGesture();
+    }
 }
 
 void GlowEditor::togglePanel (const String& prefix, ModuleIcon::Kind kind)
@@ -259,10 +291,10 @@ void GlowEditor::timerCallback()
         preGain.label.setText (link ? "LINKED GAIN" : "SHELF GAIN", dontSendNotification);
         for (auto* k : { &preFreq, &preGain })
             k->label.setColour (Label::textColourId, link ? GlowLookAndFeel::amber : GlowLookAndFeel::textDim);
-        preFreq.slider.setTooltip (link ? "Linked: sets both shelves (post = same frequency)" : String());
-        preGain.slider.setTooltip (link ? "Linked: boosts the highs into the tubes and cuts them by the same amount after" : String());
-        postFreq.slider.setTooltip (link ? "Following the pre shelf (Link is on)" : String());
-        postGain.slider.setTooltip (link ? "Following the pre shelf at the opposite gain (Link is on)" : String());
+        preFreq.tip (link ? "LINKED: sets the frequency of both shelves" : preFreqTip);
+        preGain.tip (link ? "LINKED: boosts (or cuts) the highs going into the tubes, and does the opposite after them" : preGainTip);
+        postFreq.tip (link ? "Following the pre shelf while Link is on" : postFreqTip);
+        postGain.tip (link ? "Following the pre shelf at the opposite gain while Link is on" : postGainTip);
     }
 
     dry.meter.push (proc.takeDryPeak());

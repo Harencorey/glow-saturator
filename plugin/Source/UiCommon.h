@@ -41,6 +41,9 @@ struct Knob
         attach = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (state, paramId, slider);
     }
 
+    // hover help (shown on the knob and its name label)
+    void tip (const juce::String& t) { slider.setTooltip (t); label.setTooltip (t); }
+
     void place (juce::Rectangle<int> r, int labelH = 16)
     {
         label.setBounds (r.removeFromTop (labelH));
@@ -68,6 +71,8 @@ struct ToggleParam
 class ChoiceButtons : public juce::Component
 {
 public:
+    void tip (const juce::String& t) { for (auto* b : buttons) b->setTooltip (t); }
+
     ChoiceButtons (juce::AudioProcessorValueTreeState& state, const juce::String& paramId, int columns)
         : cols (columns)
     {
@@ -105,7 +110,7 @@ private:
 };
 
 // Vertical peak meter, -60..+6 dBFS, with a falling bar and a short peak hold.
-class LevelMeter : public juce::Component
+class LevelMeter : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     void push (float peakLinear)

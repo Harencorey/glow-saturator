@@ -33,6 +33,7 @@ private:
         bool shownCompFirst = false, shownHeard = true;
     };
     void setupStrip (Strip&, const juce::String& prefix, const juce::String& name);
+    void toggleParam (const juce::String& id);
     void layoutStrip (Strip&, juce::Rectangle<int>);
     void togglePanel (const juce::String& prefix, ModuleIcon::Kind);
     void closePanel();
@@ -49,6 +50,8 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> linkAttach;
     Strip dry, wet;
     PresetBar presetBar;
+    juce::TooltipWindow tooltips { this, 3000 };   // hover help after ~3 s
+    juce::String preFreqTip, preGainTip, postFreqTip, postGainTip;
 
     std::unique_ptr<ModulePanel> panel;           // the open EQ/COMP panel, if any
     juce::String panelPrefix;

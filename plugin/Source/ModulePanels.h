@@ -13,6 +13,10 @@ public:
     enum class Kind { eq, comp };
     ModuleIcon (Kind k) : juce::Button (k == Kind::eq ? "EQ" : "COMP"), kind (k) {}
 
+    // double-click switches the module on/off (single click opens/closes its panel)
+    std::function<void()> onDoubleClick;
+    void mouseDoubleClick (const juce::MouseEvent&) override { if (onDoubleClick) onDoubleClick(); }
+
     void setState (bool moduleOn, bool panelOpen)
     {
         if (moduleOn != on || panelOpen != open) { on = moduleOn; open = panelOpen; repaint(); }
@@ -93,6 +97,8 @@ public:
         power.setup (*this, state, onParamId, "ON");
         close.setButtonText ("CLOSE");
         close.onClick = [this] { if (onClose) onClose(); };
+        power.button.setTooltip ("Switch this module on or off (you can also double-click its icon)");
+        close.setTooltip ("Close this panel");
         addAndMakeVisible (close);
     }
 
@@ -135,7 +141,7 @@ private:
 //==============================================================================
 // EQ response display: draws the combined curve, and the band points can be dragged
 // (left/right = frequency, up/down = gain), scrolled (Q) and double-clicked (gain to 0 dB).
-class EqCurve : public juce::Component
+class EqCurve : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     EqCurve (juce::AudioProcessorValueTreeState& s, const juce::String& prefix) : state (s), p (prefix)
@@ -354,6 +360,15 @@ public:
         }
         lowShelf.setup (*this, s, prefix + "EqLowShelf", "SHELF");
         highShelf.setup (*this, s, prefix + "EqHighShelf", "SHELF");
+        curve.setTooltip ("Drag a point to set frequency and gain. Shift-drag: frequency only. Scroll over a point: Q. Double-click a point: reset its gain.");
+        for (int b = 0; b < 4; ++b)
+        {
+            freq[b].tip ("Band " + juce::String (b + 1) + " frequency");
+            gain[b].tip ("Band " + juce::String (b + 1) + " boost or cut");
+            q[b].tip ("Band " + juce::String (b + 1) + " width: low Q = broad, high Q = narrow");
+        }
+        lowShelf.button.setTooltip ("Band 1: low shelf (on) or bell (off)");
+        highShelf.button.setTooltip ("Band 4: high shelf (on) or bell (off)");
     }
 
     void refresh() override { curve.refresh(); }
@@ -387,7 +402,7 @@ private:
 
 //==============================================================================
 // Horizontal gain-reduction meter, 0 to -20 dB, drawn from the right.
-class GrMeter : public juce::Component
+class GrMeter : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     void set (float grDb)
@@ -435,6 +450,15 @@ public:
         release.setup (*this, s, prefix + "CompRelease", "RELEASE", 200.0);
         output.setup (*this, s, prefix + "CompOutput", "OUTPUT", 0.0);
         mix.setup (*this, s, prefix + "CompMix", "MIX", 100.0);   // parallel blend (phase-exact)
+        input.tip ("How hard you hit the compressor. There's no threshold knob: more Input = more compression.");
+        output.tip ("Level after the compressor (on top of Auto Makeup, if that's on)");
+        attack.tip ("How fast it clamps down on peaks. Slower lets more transient punch through.");
+        release.tip ("How fast it lets go after a peak. Short = pumpy and loud, long = smooth.");
+        mix.tip ("Parallel compression: blends the uncompressed signal back in. 100% = fully compressed.");
+        ratio.tip ("Ratio: how hard it compresses once it's working. The knee gets harder as the ratio goes up; NUKE is a brickwall.");
+        colour.tip ("Distortion colour: CLEAN, DIST 2 (2nd harmonic, warm and thick) or DIST 3 (3rd harmonic, edgier)");
+        hpf.button.setTooltip ("Detector high-pass: stops kick and bass from pumping the compressor");
+        gr.setTooltip ("Gain reduction: how much the compressor is turning things down");
         addAndMakeVisible (ratio);
         addAndMakeVisible (colour);
         hpf.setup (*this, s, prefix + "CompHpf", "DETECTOR HPF");
