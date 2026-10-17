@@ -48,10 +48,10 @@ private:
         void paintButton (juce::Graphics& g, bool over, bool) override
         {
             auto r = getLocalBounds().toFloat().reduced (0.5f);
-            g.setColour (juce::Colours::black.withAlpha (over ? 0.42f : 0.32f));
-            g.fillRoundedRectangle (r, 4.0f);
-            g.setColour (GlowLookAndFeel::textDim.withAlpha (0.5f));
-            g.drawRoundedRectangle (r, 4.0f, 1.0f);
+            g.setColour (GlowLookAndFeel::section.brighter (over ? 0.12f : 0.0f));
+            g.fillRoundedRectangle (r, 6.0f);
+            g.setColour (GlowLookAndFeel::edge);
+            g.drawRoundedRectangle (r, 6.0f, 1.0f);
             g.setColour (GlowLookAndFeel::text);
             g.setFont (juce::FontOptions (12.5f));
             g.drawFittedText (getButtonText(), getLocalBounds().reduced (22, 0), juce::Justification::centred, 1);
