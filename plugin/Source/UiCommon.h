@@ -16,10 +16,10 @@ public:
     juce::Font getSliderPopupFont (juce::Slider&) override { return juce::FontOptions (12.0f, juce::Font::bold); }
     void drawBubble (juce::Graphics&, juce::BubbleComponent&, const juce::Point<float>&, const juce::Rectangle<float>&) override;
 
-    // faceplate palette: warm black, amber, cream
-    static inline const juce::Colour bg { 0xff161310 }, panel { 0xff1c1814 }, section { 0xff231e19 },
-        amber { 0xfff0a24a }, amberDim { 0xff6b4a24 }, text { 0xffede3cf }, textDim { 0xff9b917f },
-        well { 0xff0f0d0b }, edge { 0xff3a332b }, lampBg { 0xff23180e },
+    // Refined graphite faceplate with copper signal accents; semantic status colours retained.
+    static inline const juce::Colour bg { 0xff111418 }, panel { 0xff1a1e23 }, section { 0xff23282e },
+        amber { 0xffeda666 }, amberDim { 0xff77513a }, text { 0xfff0eee9 }, textDim { 0xffa0a5a9 },
+        well { 0xff101317 }, edge { 0xff343c43 }, lampBg { 0xff34261f },
         green { 0xff8fb85a }, red { 0xffe5533d }, yellow { 0xfff2cf4a };
 
     // a lit indicator dot (buttons, the pilot lamp)
