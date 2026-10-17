@@ -31,10 +31,10 @@ public:
     void paintButton (juce::Graphics& g, bool over, bool) override
     {
         auto r = getLocalBounds().toFloat().reduced (1.0f);
-        g.setColour (juce::Colours::black.withAlpha (over ? 0.4f : 0.3f));
-        g.fillRoundedRectangle (r, 4.0f);
+        g.setColour (GlowLookAndFeel::section.brighter (over ? 0.12f : 0.0f));
+        g.fillRoundedRectangle (r, 5.0f);
         g.setColour (open ? GlowLookAndFeel::text : (on ? GlowLookAndFeel::amber : GlowLookAndFeel::textDim.withAlpha (0.5f)));
-        g.drawRoundedRectangle (r, 4.0f, open ? 1.6f : 1.0f);
+        g.drawRoundedRectangle (r, 5.0f, open ? 1.6f : 1.0f);
 
         auto icon = r.reduced (5.0f, 4.0f).withTrimmedBottom (9.0f);
         const auto c = on ? GlowLookAndFeel::amber : GlowLookAndFeel::textDim;
