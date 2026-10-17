@@ -44,21 +44,25 @@ void GlowLookAndFeel::drawRotarySlider (Graphics& g, int x, int y, int w, int h,
     const float ang = a0 + pos * (a1 - a0);
     const float alpha = s.isEnabled() ? 1.0f : 0.4f;
 
-    // scale: 11 dots, plus numbers on the big knobs
+    // Copper progress arc and precise graduations share the existing control geometry.
     const float rt = kr + jmax (4.0f, kd * 0.08f);
     const float dotR = jmax (1.1f, kd * 0.012f);
-    g.setColour (Colour (0xffcfc4ad).withAlpha (0.85f * alpha));
+    g.setColour (textDim.withAlpha (0.65f * alpha));
     for (int i = 0; i <= 10; ++i)
     {
         const float a = a0 + (float) i / 10.0f * (a1 - a0);
         g.fillEllipse (c.x + rt * std::sin (a) - dotR, c.y - rt * std::cos (a) - dotR, dotR * 2.0f, dotR * 2.0f);
     }
+    Path progress;
+    progress.addCentredArc (c.x, c.y, rt, rt, 0.0f, a0, ang, true);
+    g.setColour (amber.withAlpha (0.9f * alpha));
+    g.strokePath (progress, PathStrokeType (jmax (1.5f, size * 0.012f), PathStrokeType::curved, PathStrokeType::rounded));
     if (nums)
     {
         const float rn = kr + jmax (11.0f, kd * 0.2f);
         const float fs = jmax (9.0f, kd * 0.075f);
         g.setFont (FontOptions (fs, Font::bold));
-        g.setColour (Colour (0xffd9cfbb).withAlpha (alpha));
+        g.setColour (textDim.withAlpha (alpha));
         for (int i = 0; i <= 10; ++i)
         {
             const float a = a0 + (float) i / 10.0f * (a1 - a0);
@@ -70,7 +74,7 @@ void GlowLookAndFeel::drawRotarySlider (Graphics& g, int x, int y, int w, int h,
     // shadow, skirt with knurling
     g.setColour (Colours::black.withAlpha (0.55f * alpha));
     g.fillEllipse (c.x - kr, c.y - kr + kd * 0.04f, kd, kd);
-    g.setGradientFill (ColourGradient (Colour (0xff2e2a26), c.x - kr * 0.4f, c.y - kr * 0.5f, Colour (0xff0e0d0c), c.x + kr * 0.5f, c.y + kr, true));
+    g.setGradientFill (ColourGradient (Colour (0xff414851), c.x - kr * 0.4f, c.y - kr * 0.5f, Colour (0xff11161b), c.x + kr * 0.5f, c.y + kr, true));
     g.fillEllipse (c.x - kr, c.y - kr, kd, kd);
     const int ridges = jlimit (24, 72, (int) (kd * 0.6f));
     for (int i = 0; i < ridges; ++i)
@@ -82,8 +86,8 @@ void GlowLookAndFeel::drawRotarySlider (Graphics& g, int x, int y, int w, int h,
     }
     // cap
     const float cr = kr * 0.72f;
-    g.setGradientFill (ColourGradient (Colour (0xff5d5852).withMultipliedAlpha (alpha), c.x - cr * 0.35f, c.y - cr * 0.55f,
-                                       Colour (0xff121110), c.x + cr * 0.4f, c.y + cr, true));
+    g.setGradientFill (ColourGradient (Colour (0xff626b73).withMultipliedAlpha (alpha), c.x - cr * 0.35f, c.y - cr * 0.55f,
+                                       Colour (0xff171b20), c.x + cr * 0.4f, c.y + cr, true));
     g.fillEllipse (c.x - cr, c.y - cr, cr * 2.0f, cr * 2.0f);
     g.setColour (Colours::white.withAlpha (0.12f * alpha));
     g.drawEllipse (c.x - cr, c.y - cr, cr * 2.0f, cr * 2.0f, 1.0f);
@@ -106,17 +110,17 @@ void GlowLookAndFeel::drawLinearSlider (Graphics& g, int x, int y, int w, int h,
     // console-style fader: dark slot with an amber fill below a silver cap
     const float cx = (float) x + (float) w * 0.5f;
     Rectangle<float> groove (cx - 2.5f, (float) y, 5.0f, (float) h);
-    g.setColour (Colour (0xff0a0807));
+    g.setColour (Colour (0xff0e1216));
     g.fillRoundedRectangle (groove, 2.5f);
-    g.setGradientFill (ColourGradient (amber, 0.0f, pos, Colour (0xff8a4a1c), 0.0f, (float) (y + h), false));
+    g.setGradientFill (ColourGradient (amber, 0.0f, pos, Colour (0xff965536), 0.0f, (float) (y + h), false));
     g.fillRoundedRectangle (groove.withTop (pos), 2.5f);
 
     Rectangle<float> cap (cx - 9.0f, pos - 14.0f, 18.0f, 28.0f);
     g.setColour (Colours::black.withAlpha (0.6f));
     g.fillRoundedRectangle (cap.translated (0.0f, 2.0f), 3.0f);
-    g.setGradientFill (ColourGradient (Colour (0xffece9e2), cap.getX(), cap.getY(), Colour (0xff8f8a82), cap.getX(), cap.getBottom(), false));
+    g.setGradientFill (ColourGradient (Colour (0xffd9dee0), cap.getX(), cap.getY(), Colour (0xff78838b), cap.getX(), cap.getBottom(), false));
     g.fillRoundedRectangle (cap, 3.0f);
-    g.setColour (Colour (0xff2a2724));
+    g.setColour (Colour (0xff333b42));
     g.fillRect (cap.getX() + 2.0f, pos - 1.0f, cap.getWidth() - 4.0f, 2.0f);
 }
 
@@ -502,31 +506,25 @@ void GlowEditor::timerCallback()
 void GlowEditor::paint (Graphics& g)
 {
     using L = GlowLookAndFeel;
-    g.fillAll (Colour (0xff0c0a09));
+    g.fillAll (L::well);
     const auto face = getLocalBounds().toFloat().reduced (1.0f);
-    g.setGradientFill (ColourGradient (Colour (0xff1e1a16), 0.0f, 0.0f, Colour (0xff13110e), 0.0f, (float) getHeight(), false));
+    g.setGradientFill (ColourGradient (Colour (0xff252a30), 0.0f, 0.0f,
+                                      Colour (0xff111519), 0.0f, (float) getHeight(), false));
     g.fillRoundedRectangle (face, 12.0f);
-    if (! texture.isValid())
-    {
-        // faceplate grain: a fine random speckle, made once
-        texture = Image (Image::ARGB, getWidth(), getHeight(), true);
-        Graphics tg (texture);
-        Random rnd (7);
-        for (int i = 0; i < getWidth() * getHeight() / 9; ++i)
-        {
-            tg.setColour (rnd.nextBool() ? Colours::white.withAlpha (0.035f) : Colours::black.withAlpha (0.12f));
-            tg.fillRect (rnd.nextInt (getWidth()), rnd.nextInt (getHeight()), 1, 1);
-        }
-    }
-    g.drawImageAt (texture, 0, 0);
-    g.setColour (Colour (0xff2e2821));
+    g.setColour (L::edge);
     g.drawRoundedRectangle (face, 12.0f, 1.0f);
+    // Restrained divider separates navigation from the signal path.
+    g.setColour (L::edge.withAlpha (0.9f));
+    g.fillRect (24, 57, getWidth() - 48, 1);
 
     // header: pilot lamp + wordmark, company on the right
     L::drawLamp (g, { 34.0f, 31.0f }, 5.0f, true);
     g.setColour (L::text);
-    g.setFont (FontOptions (30.0f, Font::bold).withKerningFactor (0.3f));
+    g.setFont (FontOptions (30.0f, Font::bold).withKerningFactor (0.15f));
     g.drawText ("GLOW", 48, 12, 160, 38, Justification::centredLeft);
+    g.setColour (L::amber);
+    g.fillRoundedRectangle (48.0f, 49.0f, 72.0f, 2.0f, 1.0f);
+    g.setColour (L::text);
     g.setFont (FontOptions (15.0f, Font::bold).withKerningFactor (0.22f));
     g.drawText ("NORKA DSP", getWidth() - 228, 14, 200, 18, Justification::centredRight);
     g.setColour (L::textDim);
@@ -535,10 +533,14 @@ void GlowEditor::paint (Graphics& g)
 
     auto panelBox = [&g] (Rectangle<int> r)
     {
-        g.setColour (Colours::black.withAlpha (0.22f));
-        g.fillRoundedRectangle (r.toFloat(), 12.0f);
-        g.setColour (Colour (0xff2a241e));
-        g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 12.0f, 1.0f);
+        const auto box = r.toFloat();
+        g.setGradientFill (ColourGradient (GlowLookAndFeel::panel, box.getX(), box.getY(),
+                                          GlowLookAndFeel::well, box.getRight(), box.getBottom(), false));
+        g.fillRoundedRectangle (box, 10.0f);
+        g.setColour (GlowLookAndFeel::edge);
+        g.drawRoundedRectangle (box.reduced (0.5f), 10.0f, 1.0f);
+        g.setColour (GlowLookAndFeel::amber.withAlpha (0.55f));
+        g.fillRoundedRectangle (box.getX() + 14.0f, box.getY(), 36.0f, 2.0f, 1.0f);
     };
     auto caption = [&g] (const String& t, Rectangle<int> r, Justification j = Justification::centredLeft, Colour c = L::textDim)
     {
@@ -547,11 +549,13 @@ void GlowEditor::paint (Graphics& g)
         g.drawText (t, r, j);
     };
     panelBox (inputArea);
+    panelBox (tubeArea);
+    panelBox (outputArea);
     panelBox (mixArea);
 
     // INPUT captions, divider, cheat sheet
     caption ("INPUT", { inputArea.getX() + 12, inputArea.getY() + 8, 120, 14 });
-    g.setColour (Colour (0xff241f1b));
+    g.setColour (L::edge);
     g.fillRect (inputArea.getX() + 12, hpf.label.getBottom() + 6, inputArea.getWidth() - 24, 1);
     caption ("PRE-SAT EQ", { inputArea.getX() + 12, preEqLink.button.getY(), 120, preEqLink.button.getHeight() }, Justification::centredLeft, L::text.withAlpha (0.85f));
     {
@@ -644,7 +648,7 @@ void GlowEditor::paint (Graphics& g)
     }
 
     // pinstripes along the bottom, version
-    g.setColour (Colour (0xffa8552a).withAlpha (0.8f));
+    g.setColour (L::amber.withAlpha (0.7f));
     g.fillRect (28, getHeight() - 15, getWidth() - 56, 1);
     g.setColour (L::text.withAlpha (0.2f));
     g.fillRect (28, getHeight() - 11, getWidth() - 56, 1);
@@ -798,7 +802,6 @@ void GlowEditor::resized()
         layoutStrip (wet, r.reduced (3, 0));
     }
     lead.setBounds (getLocalBounds());
-    texture = {};
     if (panel != nullptr) panel->setBounds (overlayArea);
 }
 
