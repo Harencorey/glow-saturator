@@ -716,9 +716,9 @@ void GlowEditor::paint (Graphics& g)
 
 juce::Rectangle<int> GlowEditor::designSize() const
 {
-    const bool tall = inputOpen || mixerOpen;
-    const int w = tall ? 12 + (inputOpen ? 532 : 228) + 11 + 400 + 11 + (mixerOpen ? 548 : 341) + 13 : 1116;
-    const int h = (tall ? 358 : 262) + (panel != nullptr ? 300 : 0);
+    // one height in every view (more room than before); expanding a section only adds width
+    const int w = kMargin + (inputOpen ? kInputOpenW : kInputW) + kGap + kCentreW + kGap + (mixerOpen ? kMixOpenW : kMixW) + kMargin;
+    const int h = kMainH + (panel != nullptr ? 300 : 0);
     return { 0, 0, w, h };
 }
 
@@ -817,9 +817,8 @@ void GlowEditor::paintBody (Graphics& g)
         rangeLabels (hpf, "20 Hz", "1 kHz");
     }
 
-    // ---- centre: saturation (a card in the tall view; open in the compact one)
-    if (inputOpen || mixerOpen) card (centreCard);
-    else card (centreCard, 0.55f);
+    // ---- centre: saturation
+    card (centreCard);
     {   // tube meter: filaments that glow with how hard the tubes are working
         const float d = jlimit (0.0f, 1.0f, lastGlow);
         auto w = tubeWindow.toFloat();
@@ -898,7 +897,7 @@ void GlowEditor::paintBody (Graphics& g)
             g.drawText (t, st->meter.getX() - 10, f.getBottom() + 1, f.getRight() - st->meter.getX() + 20, 13, Justification::centred);
         }
         g.setColour (Colour (0xff2a2622));
-        g.fillRect (mixerCard.getX() + 282, mixerCard.getY() + 26, 1, mixerCard.getHeight() - 34);
+        g.fillRect (mixerCard.getX() + mixerCard.getWidth() / 2, mixerCard.getY() + 26, 1, mixerCard.getHeight() - 34);
     }
 
     // ---- bottom strip: INPUT | OUTPUT  AUTO
@@ -981,7 +980,7 @@ void GlowEditor::layoutStrip (Strip& st, Rectangle<int> r)
     const int x = r.getX(), y = r.getY();
     st.label.setBounds (x + 40, y, 70, 14);
     st.meter.setBounds (x + 42, y + 22, 8, 10);   // height set below from the fader travel
-    st.fader.setBounds (x + 62, y + 14, 22, 80);   // leaves room for the value under it inside the card
+    st.fader.setBounds (x + 62, y + 14, 22, r.getHeight() - 32);   // leaves room for the value under it inside the card
     const int yTop = st.fader.getY() + (int) st.fader.getPositionOfValue (st.fader.getMaximum());
     const int yBot = st.fader.getY() + (int) st.fader.getPositionOfValue (st.fader.getMinimum());
     st.meter.setBounds (x + 42, yTop, 8, jmax (10, yBot - yTop));
@@ -989,32 +988,31 @@ void GlowEditor::layoutStrip (Strip& st, Rectangle<int> r)
     const bool compFirst = st.compFirst != nullptr && st.compFirst->load() > 0.5f;
     st.shownCompFirst = compFirst;
     const int ix = x + 100, iw = 62;
-    (compFirst ? st.compIcon : st.eqIcon).setBounds (ix, y + 16, iw, 23);
-    (compFirst ? st.eqIcon : st.compIcon).setBounds (ix, y + 44, iw, 23);
-    st.swap.setBounds (ix + iw + 2, y + 24, 16, 36);
-    st.mute.button.setBounds (ix + 2, y + 74, 27, 22);
-    st.solo.button.setBounds (ix + 33, y + 74, 27, 22);
+    (compFirst ? st.compIcon : st.eqIcon).setBounds (ix, y + 18, iw, 26);
+    (compFirst ? st.eqIcon : st.compIcon).setBounds (ix, y + 52, iw, 26);
+    st.swap.setBounds (ix + iw + 2, y + 30, 16, 36);
+    st.mute.button.setBounds (ix + 2, y + 90, 27, 24);
+    st.solo.button.setBounds (ix + 33, y + 90, 27, 24);
 }
 
 void GlowEditor::applyLayout()
 {
-    const bool tall = inputOpen || mixerOpen;
-    mainH = tall ? 358 : 262;
+    mainH = kMainH;
     const auto ds = designSize();
     const int W = ds.getWidth();
-    const int top = 45, gap = tall ? 11 : 7;
+    const int top = kTop;
 
     // header: preset bar, A/B, undo/redo, roughly centred
-    const int hx = W / 2 - 258;
-    presetBar.setBounds (hx, 7, 427, 26);
-    abA.setBounds (hx + 439, 7, 28, 26);
-    abB.setBounds (hx + 476, 7, 28, 26);
-    undoButton.setBounds (hx + 518, 7, 28, 26);
-    redoButton.setBounds (hx + 552, 7, 28, 26);
+    const int hx = W / 2 - 290;
+    presetBar.setBounds (hx, 10, 440, 28);
+    abA.setBounds (hx + 454, 10, 30, 28);
+    abB.setBounds (hx + 490, 10, 30, 28);
+    undoButton.setBounds (hx + 532, 10, 30, 28);
+    redoButton.setBounds (hx + 568, 10, 30, 28);
 
-    leftCard = { tall ? 12 : 17, top, inputOpen ? 532 : 228, tall ? 266 : 158 };
-    centreCard = { leftCard.getRight() + gap, top, tall ? 400 : 485, tall ? 290 : 205 };
-    mixCard = { centreCard.getRight() + gap, top, mixerOpen ? 548 : 341, tall ? 258 : 158 };
+    leftCard = { kMargin, top, inputOpen ? kInputOpenW : kInputW, kCardH };
+    centreCard = { leftCard.getRight() + kGap, top, kCentreW, kCardH };
+    mixCard = { centreCard.getRight() + kGap, top, mixerOpen ? kMixOpenW : kMixW, kCardH };
 
     auto knobAt = [] (Knob& k, Point<int> c, int size, int valueH, Rectangle<int> label)
     {
@@ -1033,49 +1031,36 @@ void GlowEditor::applyLayout()
     if (inputOpen)
     {
         const auto L = leftCard;
-        preEqLamp.setBounds (L.getX() + 8, L.getY() + 7, 20, 20);
-        inputExpand.setBounds (L.getRight() - 34, L.getY() + 6, 24, 22);
-        preEqLink.button.setBounds (L.getRight() - 104, L.getY() + 6, 62, 22);
-        preCurve.setBounds (L.getX() + 40, L.getY() + 36, 478, 104);
-        knobAt (hpf, rel (L, 78, 214), 85, 14, labelAt (rel (L, 78, 168)));
-        keepLows.button.setBounds (L.getX() + 152, L.getY() + 186, 116, 26);
-        slope12.setBounds (L.getX() + 152, L.getY() + 220, 55, 22);
-        slope24.setBounds (L.getX() + 213, L.getY() + 220, 55, 22);
-        knobAt (preFreq, rel (L, 345, 214), 85, 14, labelAt (rel (L, 345, 168)));
-        knobAt (preQ, rel (L, 462, 214), 85, 14, labelAt (rel (L, 462, 168)));
+        preEqLamp.setBounds (L.getX() + 10, L.getY() + 9, 20, 20);
+        inputExpand.setBounds (L.getRight() - 38, L.getY() + 8, 26, 24);
+        preEqLink.button.setBounds (L.getRight() - 112, L.getY() + 8, 64, 24);
+        preCurve.setBounds (L.getX() + 46, L.getY() + 44, L.getWidth() - 68, 132);
+        knobAt (hpf, rel (L, 86, 252), 84, 14, labelAt (rel (L, 86, 205)));
+        keepLows.button.setBounds (L.getX() + 162, L.getY() + 224, 124, 28);
+        slope12.setBounds (L.getX() + 162, L.getY() + 262, 59, 24);
+        slope24.setBounds (L.getX() + 227, L.getY() + 262, 59, 24);
+        knobAt (preFreq, rel (L, 370, 252), 84, 14, labelAt (rel (L, 370, 205)));
+        knobAt (preQ, rel (L, 476, 252), 84, 14, labelAt (rel (L, 476, 205)));
     }
     else
     {
         const auto L = leftCard;
-        const int oy = tall ? 50 : 0;
-        inputExpand.setBounds (L.getRight() - 38, L.getY() + 10 + (tall ? 0 : 0), 25, 24);
-        knobAt (hpf, rel (L, 113, 86 + oy), 107, 14, labelAt ({ 0, -100 }));   // the card's title names it
+        inputExpand.setBounds (L.getRight() - 40, L.getY() + 12, 26, 24);
+        knobAt (hpf, rel (L, L.getWidth() / 2, 158), 128, 16, labelAt ({ 0, -100 }));   // the card's title names it
     }
     hpf.label.setVisible (inputOpen);
 
-    // ---- SATURATION
+    // ---- SATURATION (identical in every view)
     {
         const auto C = centreCard;
-        if (! tall)
-        {
-            tubeWindow = { C.getX() + 95, C.getY() + 2, 297, 25 };
-            knobAt (even, rel (C, 146, 62), 76, 0, labelAt (rel (C, 146, 97)));
-            knobAt (density, rel (C, 242, 62), 76, 0, labelAt (rel (C, 242, 97)));
-            knobAt (odd, rel (C, 341, 62), 76, 0, labelAt (rel (C, 341, 97)));
-            knobAt (drive, rel (C, 243, 166), 122, 0, labelAt (rel (C, 243, 209), 70, 16));
-            knobAt (envAmount, rel (C, 104, 160), 70, 0, labelAt (rel (C, 104, 196)));
-            knobAt (envSpeed, rel (C, 382, 160), 70, 0, labelAt (rel (C, 382, 196)));
-        }
-        else
-        {
-            tubeWindow = { C.getX() + 47, C.getY() + 8, 306, 30 };
-            knobAt (even, rel (C, 101, 82), 90, 0, labelAt (rel (C, 101, 121)));
-            knobAt (density, rel (C, 200, 82), 90, 0, labelAt (rel (C, 200, 121)));
-            knobAt (odd, rel (C, 299, 82), 90, 0, labelAt (rel (C, 299, 121)));
-            knobAt (drive, rel (C, 200, 211), 160, 0, labelAt (rel (C, 200, 278), 80, 18));
-            knobAt (envAmount, rel (C, 62, 214), 84, 0, labelAt (rel (C, 62, 254)));
-            knobAt (envSpeed, rel (C, 338, 214), 84, 0, labelAt (rel (C, 338, 254)));
-        }
+        const int cx = C.getWidth() / 2;
+        tubeWindow = { C.getX() + cx - 160, C.getY() + 14, 320, 32 };
+        knobAt (even, rel (C, cx - 104, 98), 90, 0, labelAt (rel (C, cx - 104, 138)));
+        knobAt (density, rel (C, cx, 98), 90, 0, labelAt (rel (C, cx, 138)));
+        knobAt (odd, rel (C, cx + 104, 98), 90, 0, labelAt (rel (C, cx + 104, 138)));
+        knobAt (drive, rel (C, cx, 230), 158, 0, labelAt (rel (C, cx, 296), 80, 18));
+        knobAt (envAmount, rel (C, cx - 146, 236), 84, 0, labelAt (rel (C, cx - 146, 277)));
+        knobAt (envSpeed, rel (C, cx + 146, 236), 84, 0, labelAt (rel (C, cx + 146, 277)));
         glowArea = drive.slider.getBounds().expanded (8);
         modDot.setBounds (drive.slider.getBounds());
     }
@@ -1088,20 +1073,19 @@ void GlowEditor::applyLayout()
         shownMasterCompFirst = cf;
         if (! mixerOpen)
         {
-            const int oy = tall ? 42 : 0;
-            mixerExpand.setBounds (M.getRight() - 38, M.getY() + 10, 25, 24);
-            knobAt (mix, rel (M, 100, 86 + oy), 110, 0, labelAt ({ 0, -100 }));
-            (cf ? masterComp : masterEq).setBounds (M.getX() + 178, M.getY() + 42 + oy, 150, 36);
-            (cf ? masterEq : masterComp).setBounds (M.getX() + 178, M.getY() + 90 + oy, 150, 36);
-            masterSwap.setBounds (M.getX() + 158, M.getY() + 66 + oy, 18, 36);
+            mixerExpand.setBounds (M.getRight() - 40, M.getY() + 12, 26, 24);
+            knobAt (mix, rel (M, 104, 160), 128, 0, labelAt ({ 0, -100 }));
+            (cf ? masterComp : masterEq).setBounds (M.getX() + 198, M.getY() + 112, 150, 38);
+            (cf ? masterEq : masterComp).setBounds (M.getX() + 198, M.getY() + 164, 150, 38);
+            masterSwap.setBounds (M.getX() + 176, M.getY() + 138, 18, 38);
         }
         else
         {
-            mixerExpand.setBounds (M.getRight() - 34, M.getY() + 6, 24, 22);
-            knobAt (mix, rel (M, 222, 64), 92, 0, labelAt ({ 0, -100 }));
-            (cf ? masterComp : masterEq).setBounds (M.getX() + 318, M.getY() + 30, 206, 32);
-            (cf ? masterEq : masterComp).setBounds (M.getX() + 318, M.getY() + 70, 206, 32);
-            masterSwap.setBounds (M.getX() + 296, M.getY() + 46, 18, 40);
+            mixerExpand.setBounds (M.getRight() - 38, M.getY() + 8, 26, 24);
+            knobAt (mix, rel (M, 230, 76), 96, 0, labelAt ({ 0, -100 }));
+            (cf ? masterComp : masterEq).setBounds (M.getX() + 330, M.getY() + 40, 214, 32);
+            (cf ? masterEq : masterComp).setBounds (M.getX() + 330, M.getY() + 80, 214, 32);
+            masterSwap.setBounds (M.getX() + 308, M.getY() + 56, 18, 40);
         }
         mix.label.setVisible (false);
         for (auto* st : { &dry, &wet })
@@ -1110,19 +1094,19 @@ void GlowEditor::applyLayout()
                 c->setVisible (mixerOpen);
         if (mixerOpen)
         {
-            mixerCard = { M.getX() + 2, M.getY() + 116, M.getWidth() - 4, 140 };
-            layoutStrip (dry, { mixerCard.getX() + 60, mixerCard.getY() + 24, 200, 112 });
-            layoutStrip (wet, { mixerCard.getX() + 300, mixerCard.getY() + 24, 200, 112 });
+            mixerCard = { M.getX() + 4, M.getY() + 132, M.getWidth() - 8, M.getHeight() - 136 };
+            layoutStrip (dry, { mixerCard.getX() + 62, mixerCard.getY() + 28, 200, mixerCard.getHeight() - 34 });
+            layoutStrip (wet, { mixerCard.getX() + mixerCard.getWidth() / 2 + 30, mixerCard.getY() + 28, 200, mixerCard.getHeight() - 34 });
         }
     }
 
     // ---- bottom strip (right): INPUT knob | OUTPUT knob, AUTO
     {
-        const int R = mixCard.getRight(), cy = tall ? 322 : 226;
-        bottomArea = { R - 300, cy - 15, 304, 30 };
-        knobAt (input, { R - 228, cy }, 40, 13, { R - 300, cy - 7, 46, 14 });
-        knobAt (output, { R - 148, cy }, 40, 13, { R - 124, cy - 7, 54, 14 });
-        autoGain.button.setBounds (R - 66, cy - 13, 70, 26);
+        const int R = mixCard.getRight(), cy = top + kCardH + 34;
+        bottomArea = { R - 316, cy - 17, 320, 34 };
+        knobAt (input, { R - 240, cy - 4 }, 44, 13, { R - 316, cy - 11, 48, 14 });
+        knobAt (output, { R - 156, cy - 4 }, 44, 13, { R - 130, cy - 11, 56, 14 });
+        autoGain.button.setBounds (R - 70, cy - 14, 74, 28);
     }
 
     // ---- the EQ / COMP drawer under the main controls
