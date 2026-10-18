@@ -97,6 +97,9 @@ private:
     Body body;
     bool inputOpen = false, mixerOpen = false;
     float uiScale = 0.9f;
+    // design-unit geometry (scaled by uiScale): one height for every view, sections add width
+    static constexpr int kMargin = 14, kGap = 12, kTop = 54, kCardH = 312, kMainH = 446,
+                         kInputW = 240, kInputOpenW = 548, kCentreW = 440, kMixW = 360, kMixOpenW = 580;
 
     // INPUT
     Knob hpf;
