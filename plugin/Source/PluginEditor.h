@@ -95,6 +95,7 @@ private:
     ModuleIcon::Kind panelKind = ModuleIcon::Kind::eq;
 
     juce::Rectangle<int> inputArea, tubeArea, outputArea, mixArea, overlayArea, glowArea, tubeWindow, cheatArea;
+    juce::Rectangle<int> inputCard, eqCard, tubeCard, outputCard, envCard;
     float lastGlow = -1.0f;
     float glowLevel = 0.0f;   // 0..1, how hard the tubes are working right now (meter ballistics)
 
