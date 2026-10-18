@@ -31,13 +31,13 @@ public:
     void paintButton (juce::Graphics& g, bool over, bool) override
     {
         auto r = getLocalBounds().toFloat().reduced (1.0f);
-        g.setColour (GlowLookAndFeel::section.brighter (over ? 0.12f : 0.0f));
-        g.fillRoundedRectangle (r, 5.0f);
-        g.setColour (open ? GlowLookAndFeel::text : (on ? GlowLookAndFeel::amber : GlowLookAndFeel::textDim.withAlpha (0.5f)));
-        g.drawRoundedRectangle (r, 5.0f, open ? 1.6f : 1.0f);
+        g.setColour (on ? GlowLookAndFeel::amber.withAlpha (over ? 0.12f : 0.06f) : GlowLookAndFeel::well.brighter (over ? 0.12f : 0.0f));
+        g.fillRoundedRectangle (r, 4.0f);
+        g.setColour (open ? GlowLookAndFeel::text : (on ? GlowLookAndFeel::amber : GlowLookAndFeel::edge.brighter (0.25f)));
+        g.drawRoundedRectangle (r, 4.0f, open ? 1.6f : 1.0f);
 
         auto icon = r.reduced (5.0f, 4.0f).withTrimmedBottom (9.0f);
-        const auto c = on ? GlowLookAndFeel::amber : GlowLookAndFeel::textDim;
+        const auto c = on ? GlowLookAndFeel::amber : GlowLookAndFeel::text.withAlpha (0.8f);
         g.setColour (c);
         juce::Path p;
         if (kind == Kind::eq)
@@ -60,8 +60,8 @@ public:
                            icon.getRight(), icon.getBottom() - icon.getHeight() * 0.85f);
         }
         g.strokePath (p, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
-        g.drawText (getName(), r.removeFromBottom (11.0f), juce::Justification::centred);
+        g.setFont (juce::FontOptions (9.5f).withKerningFactor (0.12f));
+        g.drawText (getName(), r.removeFromBottom (12.0f), juce::Justification::centred);
     }
 
 private:
@@ -188,6 +188,7 @@ public:
     // point (drag left/right = frequency, double-click = Off), Keep lows and the Link mirror.
     std::vector<juce::String> names;
     bool fixedHighShelf = false;
+    bool axisOutside = false;   // the main panel draws the frequency/dB labels around the curve itself
     void attachHpf (juce::RangedAudioParameter* hz, std::atomic<float>* slope24, std::atomic<float>* keep, std::atomic<float>* link)
     {
         hpfParam = hz; slopeP = slope24; keepP = keep; linkP = link;
@@ -367,6 +368,7 @@ public:
         {
             g.setColour (juce::Colours::white.withAlpha (0.06f));
             g.drawVerticalLine ((int) xOf (f), r.getY(), r.getBottom());
+            if (axisOutside) continue;
             g.setColour (GlowLookAndFeel::textDim.withAlpha (0.6f));
             g.drawText (f >= 1000.0 ? juce::String (f / 1000.0, 0) + "k" : juce::String ((int) f), (int) xOf (f) + 2, (int) r.getBottom() - 12, 30, 11, juce::Justification::left);
         }
@@ -483,10 +485,23 @@ public:
         }
         else
         {
-            g.setColour (col.withAlpha (0.12f));
+            // fill fades from the curve towards the 0 dB line
+            juce::ColourGradient fill (col.withAlpha (0.30f), 0.0f, yOf (12.0f), col.withAlpha (0.04f), 0.0f, yOf (0.0f), false);
+            juce::ColourGradient fillDown (col.withAlpha (0.30f), 0.0f, yOf (-12.0f), col.withAlpha (0.04f), 0.0f, yOf (0.0f), false);
+            g.saveState();
+            g.reduceClipRegion (juce::Rectangle<float> (r.getX(), r.getY(), r.getWidth(), yOf (0.0f) - r.getY()).toNearestInt());
+            g.setGradientFill (fill);
             g.fillPath (fillUnder (path));
-            g.setColour (col);
-            g.strokePath (path, juce::PathStrokeType (2.0f));
+            g.restoreState();
+            g.saveState();
+            g.reduceClipRegion (juce::Rectangle<float> (r.getX(), yOf (0.0f), r.getWidth(), r.getBottom() - yOf (0.0f)).toNearestInt());
+            g.setGradientFill (fillDown);
+            g.fillPath (fillUnder (path));
+            g.restoreState();
+            g.setColour (col.withAlpha (0.2f));
+            g.strokePath (path, juce::PathStrokeType (5.0f));
+            g.setColour (shown.on ? GlowLookAndFeel::text.interpolatedWith (col, 0.55f) : col);
+            g.strokePath (path, juce::PathStrokeType (1.8f));
         }
 
         // band handles (bigger when hovered or dragged), with a readout for the active one
@@ -509,9 +524,23 @@ public:
                 g.drawEllipse (x - rad + 0.75f, y - rad + 0.75f, 2.0f * rad - 1.5f, 2.0f * rad - 1.5f, 1.5f);
             }
             else
+            {
+                // a flat band is a grey dot; a band that's doing something glows amber
+                const bool flat = std::abs (shown.gain[b]) < 0.05f;
+                const auto fc = active ? GlowLookAndFeel::text : (greyed || ! shown.on || flat) ? juce::Colour (0xffa8a29a).withAlpha (greyed ? 0.4f : 1.0f) : col;
+                if (! greyed && ! flat && shown.on)
+                {
+                    g.setGradientFill (juce::ColourGradient (col.withAlpha (0.45f), x, y, col.withAlpha (0.0f), x + rad * 2.4f, y, true));
+                    g.fillEllipse (x - rad * 2.4f, y - rad * 2.4f, rad * 4.8f, rad * 4.8f);
+                }
+                g.setColour (fc);
                 g.fillEllipse (x - rad, y - rad, 2.0f * rad, 2.0f * rad);
+                g.setColour (juce::Colours::black.withAlpha (0.55f));
+                g.drawEllipse (x - rad, y - rad, 2.0f * rad, 2.0f * rad, 1.2f);
+            }
             g.setColour (bypassed ? hc : GlowLookAndFeel::bg);
             g.setFont (juce::FontOptions (active ? 10.0f : 8.5f, juce::Font::bold));
+            if (axisOutside && ! active && ! bypassed) continue;   // main panel: clean dots, the name shows on hover
             g.drawText (bi < names.size() ? names[bi] : bands.size() == 3 ? juce::String::charToString ("LMH"[bi]) : juce::String (b + 1),
                         juce::Rectangle<float> (x - rad, y - rad, 2.0f * rad, 2.0f * rad), juce::Justification::centred);
             if (active)

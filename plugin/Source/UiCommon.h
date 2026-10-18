@@ -16,11 +16,11 @@ public:
     juce::Font getSliderPopupFont (juce::Slider&) override { return juce::FontOptions (12.0f, juce::Font::bold); }
     void drawBubble (juce::Graphics&, juce::BubbleComponent&, const juce::Point<float>&, const juce::Rectangle<float>&) override;
 
-    // Refined graphite faceplate with copper signal accents; semantic status colours retained.
-    static inline const juce::Colour bg { 0xff111418 }, panel { 0xff1a1e23 }, section { 0xff23282e },
-        amber { 0xffeda666 }, amberDim { 0xff77513a }, text { 0xfff0eee9 }, textDim { 0xffa0a5a9 },
-        well { 0xff101317 }, edge { 0xff343c43 }, lampBg { 0xff34261f },
-        green { 0xff8fb85a }, red { 0xffe5533d }, yellow { 0xfff2cf4a };
+    // warm black faceplate, glowing amber, cream type
+    static inline const juce::Colour bg { 0xff12100e }, panel { 0xff181614 }, section { 0xff1f1c19 },
+        amber { 0xfff3a23c }, amberDim { 0xff7a4e1e }, text { 0xffede6da }, textDim { 0xff8e877c },
+        well { 0xff0f0e0d }, edge { 0xff2e2a25 }, lampBg { 0xff2a1d10 },
+        green { 0xff62c04a }, red { 0xffe8503a }, yellow { 0xfff2cf4a };
 
     // a lit indicator dot (buttons, the pilot lamp)
     static void drawLamp (juce::Graphics& g, juce::Point<float> c, float r, bool on)
@@ -154,14 +154,15 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
-        g.setColour (juce::Colours::black.withAlpha (0.45f));
-        g.fillRoundedRectangle (r, 2.0f);
+        g.setColour (juce::Colour (0xff0a0908));
+        g.fillRoundedRectangle (r, 1.5f);
         auto toY = [&r] (float db) { return r.getBottom() - r.getHeight() * juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 66.0f); };
         const float top = toY (level);
-        juce::ColourGradient grad (GlowLookAndFeel::green, 0.0f, r.getBottom(), GlowLookAndFeel::red, 0.0f, r.getY(), false);
-        grad.addColour ((60.0 - 6.0) / 66.0, GlowLookAndFeel::amber);
+        // green -> yellow (-12 dB) -> red (0 dB)
+        juce::ColourGradient grad (GlowLookAndFeel::green, 0.0f, r.getBottom(), GlowLookAndFeel::red, 0.0f, toY (0.0f), false);
+        grad.addColour (48.0 / 60.0, GlowLookAndFeel::yellow);
         g.setGradientFill (grad);
-        g.fillRect (r.withTop (top).reduced (1.5f, 0.0f));
+        g.fillRect (r.withTop (top).reduced (1.0f, 0.0f));
         if (hold > -60.0f)
         {
             g.setColour (hold > 0.0f ? GlowLookAndFeel::red : GlowLookAndFeel::text);
