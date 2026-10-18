@@ -333,7 +333,12 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
 void GlowProcessor::getStateInformation (juce::MemoryBlock& dest)
 {
     if (auto xml = apvts.copyState().createXml())
+    {
+        xml->setAttribute ("uiInput", uiInputOpen ? 1 : 0);
+        xml->setAttribute ("uiMixer", uiMixerOpen ? 1 : 0);
+        xml->setAttribute ("uiScale", (double) uiScale);
         copyXmlToBinary (*xml, dest);
+    }
 }
 
 void GlowProcessor::setStateInformation (const void* data, int size)
@@ -341,6 +346,10 @@ void GlowProcessor::setStateInformation (const void* data, int size)
     if (auto xml = getXmlFromBinary (data, size))
         if (xml->hasTagName (apvts.state.getType()))
         {
+            uiInputOpen = xml->getIntAttribute ("uiInput", 0) != 0;
+            uiMixerOpen = xml->getIntAttribute ("uiMixer", 0) != 0;
+            uiScale = (float) juce::jlimit (0.7, 1.5, xml->getDoubleAttribute ("uiScale", 0.9));
+            xml->removeAttribute ("uiInput"); xml->removeAttribute ("uiMixer"); xml->removeAttribute ("uiScale");
             auto tree = juce::ValueTree::fromXml (*xml);
             {   // older sessions: convert, and give every parameter the file doesn't mention its default
                 std::map<juce::String, float> v;

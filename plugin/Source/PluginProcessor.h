@@ -38,6 +38,9 @@ public:
     void setStateInformation (const void*, int) override;
 
     juce::UndoManager undoManager;   // the editor's Undo / Redo (parameter changes)
+    // editor view state, kept with the session (not parameters, not undoable): open sections + size
+    bool uiInputOpen = false, uiMixerOpen = false;
+    float uiScale = 0.9f;
     juce::AudioProcessorValueTreeState apvts;
     PresetManager presets { apvts };
 
