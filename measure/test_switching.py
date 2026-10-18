@@ -13,26 +13,15 @@ T = "/tmp/claude-0/ph"
 SR = 48000
 
 SCEN = {
-    "wet bell on/off + gain jumps": (300, ["wetF2=300", "wetQ2=4", "wetG2=8", "at=0.5", "wetEq=1", "at=1.0", "wetEq=0",
-                                          "at=1.5", "wetEq=1", "wetG2=0", "at=2.0", "wetG2=-12", "at=2.5", "wetG2=0"]),
-    "dry high shelf + bells on/off": (6000, ["dryF4=5000", "dryG4=-8", "dryG3=6", "dryF3=7000", "dryQ3=3", "at=0.5", "dryEq=1",
-                                            "at=1.0", "dryEq=0", "at=1.5", "dryEq=1", "at=2.0", "dryG4=0", "at=2.5", "dryG3=0"]),
     "HPF in/out + sweeps": (150, ["at=0.5", "hpf=20", "at=1.0", "hpf=200", "at=1.5", "hpf=19", "at=2.0", "hpf=400", "at=2.5", "hpf=19"]),
     "pre-EQ + Link, HPF slope, Keep lows": (5000, ["peq=1", "at=0.5", "peqHG=8", "at=1.0", "peqLink=1", "at=1.5", "peqHG=0", "peqMF=4000", "peqMG=-9",
                                                   "at=2.0", "peqLink=0", "at=2.5", "peqMG=0"]),
     "Keep lows on/off @ 80 Hz": (80, ["hpf=150", "at=0.5", "keep=1", "at=1.0", "keep=0", "at=1.5", "keep=1", "hpf24=0", "at=2.0", "hpf=19", "at=2.5", "hpf=200"]),
-    "comps on/off, Mix moves": (1000, ["wetIn=18", "wetColour=1", "wetMix=50", "dryIn=12", "dryColour=2", "dryMix=30",
-                                       "at=0.5", "wetComp=1", "at=1.0", "dryComp=1", "at=1.5", "wetMix=100", "dryMix=0",
-                                       "at=2.0", "wetComp=0", "at=2.5", "dryComp=0"]),
-    "mute / solo toggles": (1000, ["at=0.5", "wetMute=1", "at=1.0", "wetMute=0", "drySolo=1", "at=1.5", "wetSolo=1",
-                                   "at=2.0", "drySolo=0", "wetSolo=0", "dryMute=1", "at=2.5", "dryMute=0"]),
-    "band bypass toggles (dbl-click)": (1000, ["wetEq=1", "wetF2=1000", "wetQ2=0.3", "wetG2=10", "dryEq=1", "dryF3=1200",
-                                               "dryG3=-9", "dryQ3=4", "at=0.5", "wetB2=0", "at=1.0", "wetB2=1", "at=1.5", "dryB3=0",
-                                               "at=2.0", "dryB3=1", "wetB2=0", "at=2.5", "wetB2=1"]),
-    "order swaps with EQ + comps on": (1000, ["wetEq=1", "wetG3=6", "wetF3=1000", "dryEq=1", "dryG2=-6", "dryF2=900",
-                                              "wetComp=1", "wetIn=12", "dryComp=1", "dryIn=12",
-                                              "at=0.5", "wetOrder=1", "at=1.0", "dryOrder=1", "at=1.5", "wetOrder=0",
-                                              "at=2.0", "dryOrder=0"]),
+    "Mix moves 100 -> 30 -> 70 %": (1000, ["xmix=100", "peq=1", "peqMG=6", "at=0.5", "xmix=30", "at=1.0", "xmix=70",
+                                          "at=1.5", "xmix=45", "at=2.0", "xmix=60"]),
+    "master EQ / comp on/off + order": (1000, ["masterF2=1000", "masterG2=8", "masterIn=12", "masterRatio=4",
+                                               "at=0.5", "masterEq=1", "at=1.0", "masterComp=1", "at=1.5", "masterOrder=1",
+                                               "at=2.0", "masterEq=0", "at=2.5", "masterComp=0"]),
 }
 
 

@@ -54,10 +54,10 @@ for name, x in sigs.items():
                  dict(drive=50, even=100, odd=0, density=50, hpf=200, keep=1, hpf24=0, peq=1, peqLink=1, peqHG=6, dryLevel=-6, wetLevel=-6),
                  dict(drive=100, even=100, odd=100, density=100, peq=1, peqHF=16000, peqHG=15, peqMF=12000, peqMG=15),
                  # channel strips: everything on, extreme settings, both paths
-                 dict(drive=80, dryLevel=6, wetLevel=6, dryEq=1, wetEq=1, dryG1=18, dryF1=20, dryG4=18, dryF4=20000,
-                      wetG2=-18, wetQ2=10, wetG3=18, wetQ3=0.1, dryComp=1, wetComp=1, dryIn=36, wetIn=36,
-                      dryRatio=7, wetRatio=7, dryAtk=0.05, dryRel=50, wetColour=1, dryColour=2, dryOut=24, wetOut=24),
-                 dict(drive=50, dryLevel=0, wetLevel=-60, dryEq=1, dryComp=1, dryIn=-12, dryRatio=3, dryHpf=1, dryAtk=30, dryRel=3500)):
+                 dict(drive=80, xmix=50, masterEq=1, masterG1=18, masterF1=20, masterG4=18, masterF4=20000,
+                      masterG2=-18, masterQ2=10, masterG3=18, masterQ3=0.1, masterComp=1, masterIn=36,
+                      masterRatio=7, masterAtk=0.05, masterRel=50, masterColour=2, masterOut=24, out=12),
+                 dict(drive=50, xmix=0, masterEq=1, masterComp=1, masterIn=-12, masterRatio=3, masterHpf=1, masterAtk=30, masterRel=3500)):
         for block in (1, 37, 512, 4096):
             y = render(x, sr, args, block)
             bad = not np.all(np.isfinite(y))
@@ -66,7 +66,7 @@ for name, x in sigs.items():
                 ok = False
                 print(f"FAIL {name} args {args} block {block}: finite={not bad} peak {peak:.2f}")
     # absurd gain staging (1:1 comp, everything maxed): just has to stay finite
-    y = render(x, sr, dict(wetComp=1, wetRatio=0, wetIn=36, wetOut=24, wetLevel=6, wetEq=1, wetG2=18, dryLevel=6), 512)
+    y = render(x, sr, dict(masterComp=1, masterRatio=0, masterIn=36, masterOut=24, masterEq=1, masterG2=18, xmix=50, out=12), 512)
     if not np.all(np.isfinite(y)):
         ok = False; print(f"FAIL {name}: non-finite output with max gain staging")
     print(f"extremes {name}: done")

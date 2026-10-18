@@ -358,7 +358,7 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     hpfP = s.getRawParameterValue ("hpf");
     body.addAndMakeVisible (inputExpand);
     inputExpand.setTooltip ("Show / hide the pre-saturation EQ (the window gets wider)");
-    inputExpand.onClick = [this] { setExpanded (! inputOpen, mixerOpen); };
+    inputExpand.onClick = [this] { setExpanded (! inputOpen, false); };
     keepLows.setup (body, s, "keepLows", "KEEP LOWS");
     keepLows.button.getProperties().set ("lamp", true);
     keepLows.button.setTooltip ("KEEP LOWS: everything the high-pass removes skips the tubes and comes back clean, so the low "
@@ -406,12 +406,8 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     // ---- MIX & MASTER
     mix.setup (body, s, "mix", "MIX", 100.0, 11.0f);
     mix.popupValue();
-    mix.tip ("MIX: dry/wet. 100% = all saturated, 0% = all clean (both paths stay phase-locked, so any blend is solid). "
-             "Expand the mixer for each path's own trim, EQ and compressor.");
+    mix.tip ("MIX: dry/wet. 100% = all saturated, 0% = all clean (both paths stay phase-locked, so any blend is solid).");
     mixP = s.getRawParameterValue ("mix");
-    body.addAndMakeVisible (mixerExpand);
-    mixerExpand.setTooltip ("Show / hide the Dry/Wet mixer (the window gets wider)");
-    mixerExpand.onClick = [this] { setExpanded (inputOpen, ! mixerOpen); };
     for (auto* m : { &masterEq, &masterComp })
     {
         body.addAndMakeVisible (m);
@@ -427,8 +423,6 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     body.addAndMakeVisible (masterSwap);
     masterSwapAttach = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment> (s, "masterCompFirst", masterSwap);
     masterSwap.setTooltip ("Swap the master order: EQ then Comp, or Comp then EQ (top runs first)");
-    setupStrip (dry, "dry", "DRY");
-    setupStrip (wet, "wet", "WET");
 
     // ---- bottom strip: Input, Output, Auto
     input.setup (body, s, "inputGain", "INPUT", 0.0, 11.0f);
@@ -476,7 +470,6 @@ GlowEditor::GlowEditor (GlowProcessor& p)
 
     sendLookAndFeelChange(); // re-skin value boxes created before the knobs were parented
     inputOpen = proc.uiInputOpen;
-    mixerOpen = proc.uiMixerOpen;
     uiScale = proc.uiScale;
     applyLayout();
     startTimerHz (30);
@@ -487,47 +480,6 @@ GlowEditor::~GlowEditor()
     stopTimer();
     panel.reset();
     setLookAndFeel (nullptr);
-}
-
-void GlowEditor::setupStrip (Strip& st, const String& prefix, const String& name)
-{
-    st.prefix = prefix;
-    st.name = name;
-    st.fader.setSliderStyle (Slider::LinearVertical);
-    st.fader.setTextBoxStyle (Slider::NoTextBox, false, 0, 0);
-    st.fader.setPopupDisplayEnabled (true, true, nullptr);
-    st.fader.onValueChange = [this] { body.repaint (mixCard); };
-    st.fader.setDoubleClickReturnValue (true, 0.0);
-    st.label.setText (name, dontSendNotification);
-    st.label.setJustificationType (Justification::centred);
-    st.label.setFont (FontOptions (11.5f).withKerningFactor (0.3f));
-    st.label.setColour (Label::textColourId, GlowLookAndFeel::text);
-    for (Component* c : { (Component*) &st.fader, (Component*) &st.label, (Component*) &st.meter, (Component*) &st.eqIcon,
-                          (Component*) &st.compIcon, (Component*) &st.swap })
-        body.addAndMakeVisible (c);
-    st.swapAttach = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, prefix + "CompFirst", st.swap);
-    st.swap.setTooltip ("Swap the order: EQ then Comp, or Comp then EQ (top runs first)");
-    st.mute.setup (body, proc.apvts, prefix + "Mute", "M");
-    st.solo.setup (body, proc.apvts, prefix + "Solo", "S");
-    st.mute.button.setColour (TextButton::buttonOnColourId, GlowLookAndFeel::red);
-    st.solo.button.setColour (TextButton::buttonOnColourId, GlowLookAndFeel::yellow);
-    st.mute.button.setTooltip ("Mute " + name);
-    st.solo.button.setTooltip ("Solo " + name);
-    st.compFirst = proc.apvts.getRawParameterValue (prefix + "CompFirst");
-    st.muteP = proc.apvts.getRawParameterValue (prefix + "Mute");
-    st.soloP = proc.apvts.getRawParameterValue (prefix + "Solo");
-    st.attach = std::make_unique<AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, prefix + "Level", st.fader);
-    st.eqOn = proc.apvts.getRawParameterValue (prefix + "EqOn");
-    st.compOn = proc.apvts.getRawParameterValue (prefix + "CompOn");
-    st.eqIcon.setTooltip (name + " EQ: click to open it, double-click to switch it on or off (lit = on)");
-    st.compIcon.setTooltip (name + " compressor: click to open it, double-click to switch it on or off (lit = on)");
-    st.eqIcon.onDoubleClick = [this, prefix] { toggleParam (prefix + "EqOn"); };
-    st.compIcon.onDoubleClick = [this, prefix] { toggleParam (prefix + "CompOn"); };
-    st.fader.setTooltip (prefix == "dry" ? "DRY trim: level of the clean path after the Mix (bottom = Off)"
-                                         : "WET trim: level of the saturated path after the Mix (bottom = Off)");
-    st.meter.setTooltip (name + " level (after its trim and the Mix)");
-    st.eqIcon.onSingleClick = [this, prefix] { togglePanel (prefix, ModuleIcon::Kind::eq); };
-    st.compIcon.onSingleClick = [this, prefix] { togglePanel (prefix, ModuleIcon::Kind::comp); };
 }
 
 // Flip a bool parameter as one host gesture (undoable / automatable like a click)
@@ -547,19 +499,18 @@ void GlowEditor::togglePanel (const String& prefix, ModuleIcon::Kind kind)
     closePanel();
     if (same) return;
 
-    const String name = prefix == "dry" ? "DRY" : prefix == "wet" ? "WET" : "MASTER";
+    const String name = "MASTER";
     if (kind == ModuleIcon::Kind::eq)
         panel = std::make_unique<EqPanel> (proc.apvts, prefix, name);
     else
         panel = std::make_unique<CompPanel> (proc.apvts, prefix, name, [this, prefix]
-                     { return prefix == "dry" ? proc.dryGainReductionDb() : prefix == "wet" ? proc.wetGainReductionDb() : proc.masterGainReductionDb(); },
-                     [this, prefix] { return prefix == "dry" ? proc.dryMakeupDb() : prefix == "wet" ? proc.wetMakeupDb() : proc.masterMakeupDb(); });
+                     { return proc.masterGainReductionDb(); },
+                     [this] { return proc.masterMakeupDb(); });
     panelPrefix = prefix;
     panelKind = kind;
     if (kind == ModuleIcon::Kind::eq)
     {
-        const int path = prefix == "dry" ? 1 : prefix == "wet" ? 2 : 4;
-        panel->setSoloHandler ([this, path] (int band) { proc.setEqSolo (path, band); });
+        panel->setSoloHandler ([this] (int band) { proc.setEqSolo (4, band); });
     }
     panel->onClose = [this] { MessageManager::callAsync ([sp = Component::SafePointer<GlowEditor> (this)]
                                                          { if (sp != nullptr) sp->closePanel(); }); };
@@ -583,7 +534,7 @@ void GlowEditor::closePanel()
 void GlowEditor::setExpanded (bool in, bool mx)
 {
     inputOpen = proc.uiInputOpen = in;
-    mixerOpen = proc.uiMixerOpen = mx;
+    proc.uiMixerOpen = mx;
     applyLayout();
 }
 
@@ -607,9 +558,9 @@ void GlowEditor::showSizeMenu()
 void GlowEditor::timerCallback()
 {
     // the host restored a session with a different view
-    if (proc.uiInputOpen != inputOpen || proc.uiMixerOpen != mixerOpen || std::abs (proc.uiScale - uiScale) > 0.001f)
+    if (proc.uiInputOpen != inputOpen || std::abs (proc.uiScale - uiScale) > 0.001f)
     {
-        inputOpen = proc.uiInputOpen; mixerOpen = proc.uiMixerOpen; uiScale = proc.uiScale;
+        inputOpen = proc.uiInputOpen; uiScale = proc.uiScale;
         applyLayout();
     }
     {   // auto gain: what it's applying shows on the AUTO button's tooltip
@@ -632,14 +583,6 @@ void GlowEditor::timerCallback()
     abB.setToggleState (proc.getAB() == 1, dontSendNotification);
 
     if (inputOpen) preCurve.refresh();
-    dry.meter.push (proc.takeDryPeak());
-    wet.meter.push (proc.takeWetPeak());
-    for (auto* st : { &dry, &wet })
-    {
-        const bool mine = panel != nullptr && panelPrefix == st->prefix;
-        st->eqIcon.setState (st->eqOn->load() > 0.5f, mine && panelKind == ModuleIcon::Kind::eq);
-        st->compIcon.setState (st->compOn->load() > 0.5f, mine && panelKind == ModuleIcon::Kind::comp);
-    }
     {
         const bool mine = panel != nullptr && panelPrefix == "master";
         masterEq.setState (masterEqOn->load() > 0.5f, mine && panelKind == ModuleIcon::Kind::eq);
@@ -651,8 +594,7 @@ void GlowEditor::timerCallback()
     // section lamps (HPF in, Mix/master doing something, mixer modules in)
     {
         const int lamps = (hpfP->load() >= GlowDSP::kHpfMinHz - 0.5f ? 1 : 0)
-                        | ((mixP->load() < 99.95f || masterEqOn->load() > 0.5f || masterCompOn->load() > 0.5f) ? 2 : 0)
-                        | ((dry.eqOn->load() > 0.5f || dry.compOn->load() > 0.5f || wet.eqOn->load() > 0.5f || wet.compOn->load() > 0.5f) ? 4 : 0);
+                        | ((mixP->load() < 99.95f || masterEqOn->load() > 0.5f || masterCompOn->load() > 0.5f) ? 2 : 0);
         if (lamps != (int) body.getProperties().getWithDefault ("lamps", -1))
         {
             body.getProperties().set ("lamps", lamps);
@@ -671,20 +613,8 @@ void GlowEditor::timerCallback()
         }
     }
 
-    // chain order (icons stack top = first) and mute/solo state (name dims when not heard)
+    // master chain order (icons stack top = first)
     bool relayout = false;
-    const bool anySolo = dry.soloP->load() > 0.5f || wet.soloP->load() > 0.5f;
-    for (auto* st : { &dry, &wet })
-    {
-        const bool cf = st->compFirst->load() > 0.5f;
-        if (cf != st->shownCompFirst) { st->shownCompFirst = cf; relayout = true; }
-        const bool heard = st->muteP->load() < 0.5f && (! anySolo || st->soloP->load() > 0.5f);
-        if (heard != st->shownHeard)
-        {
-            st->shownHeard = heard;
-            st->label.setColour (Label::textColourId, heard ? GlowLookAndFeel::text : GlowLookAndFeel::textDim.withAlpha (0.45f));
-        }
-    }
     if ((masterCompFirst->load() > 0.5f) != shownMasterCompFirst) relayout = true;
     if (relayout) applyLayout();
 
@@ -875,31 +805,6 @@ void GlowEditor::paintBody (Graphics& g)
         small ("0%", b.getCentreX() - S * 0.40f, b.getCentreY() + S * 0.42f);
         small ("100%", b.getCentreX() + S * 0.40f, b.getCentreY() + S * 0.42f);
     }
-    if (mixerOpen)
-    {
-        card (mixerCard);
-        title ("MIXER", mixerCard.getX() + 18, mixerCard.getY() + 13, (lamps & 4) != 0);
-        for (auto* st : { &dry, &wet })
-        {
-            const auto& f = st->fader;
-            g.setFont (FontOptions (9.5f));
-            for (double db : { 6.0, 0.0, -12.0, -48.0 })
-            {
-                const float y = (float) f.getY() + (float) f.getPositionOfValue (db);
-                g.setColour (L::textDim.withAlpha (std::abs (db) < 0.1 ? 1.0f : 0.75f));
-                g.drawText (db > 0.0 ? "+" + String ((int) db) : String ((int) db), st->meter.getX() - 26, (int) y - 5, 21, 10,
-                            Justification::centredRight);
-            }
-            const double v = f.getValue();
-            const String t = v <= f.getMinimum() + 0.01 ? String ("Off") : (v > 0.05 ? "+" : "") + String (v, 1) + " dB";
-            g.setFont (FontOptions (11.0f));
-            g.setColour (L::text.withAlpha (0.9f));
-            g.drawText (t, st->meter.getX() - 10, f.getBottom() + 1, f.getRight() - st->meter.getX() + 20, 13, Justification::centred);
-        }
-        g.setColour (Colour (0xff2a2622));
-        g.fillRect (mixerCard.getX() + mixerCard.getWidth() / 2, mixerCard.getY() + 26, 1, mixerCard.getHeight() - 34);
-    }
-
     // ---- bottom strip: INPUT | OUTPUT  AUTO
     g.setColour (Colour (0xff2a2622));
     g.fillRect (bottomArea.getX() + 140, bottomArea.getY() + 4, 1, 22);
@@ -974,27 +879,6 @@ void GlowEditor::paintLead (Graphics& g)
     }
 }
 
-// one mixer strip: name, dB scale | meter | fader, and EQ / COMP (+ order) / M S
-void GlowEditor::layoutStrip (Strip& st, Rectangle<int> r)
-{
-    const int x = r.getX(), y = r.getY();
-    st.label.setBounds (x + 40, y, 70, 14);
-    st.meter.setBounds (x + 42, y + 22, 8, 10);   // height set below from the fader travel
-    st.fader.setBounds (x + 62, y + 14, 22, r.getHeight() - 32);   // leaves room for the value under it inside the card
-    const int yTop = st.fader.getY() + (int) st.fader.getPositionOfValue (st.fader.getMaximum());
-    const int yBot = st.fader.getY() + (int) st.fader.getPositionOfValue (st.fader.getMinimum());
-    st.meter.setBounds (x + 42, yTop, 8, jmax (10, yBot - yTop));
-    // icons stack in signal order; the arrows beside them flip it
-    const bool compFirst = st.compFirst != nullptr && st.compFirst->load() > 0.5f;
-    st.shownCompFirst = compFirst;
-    const int ix = x + 100, iw = 62;
-    (compFirst ? st.compIcon : st.eqIcon).setBounds (ix, y + 18, iw, 26);
-    (compFirst ? st.eqIcon : st.compIcon).setBounds (ix, y + 52, iw, 26);
-    st.swap.setBounds (ix + iw + 2, y + 30, 16, 36);
-    st.mute.button.setBounds (ix + 2, y + 90, 27, 24);
-    st.solo.button.setBounds (ix + 33, y + 90, 27, 24);
-}
-
 void GlowEditor::applyLayout()
 {
     mainH = kMainH;
@@ -1065,39 +949,16 @@ void GlowEditor::applyLayout()
         modDot.setBounds (drive.slider.getBounds());
     }
 
-    // ---- MIX & MASTER
+    // ---- MIX & MASTER: the Mix knob, then the master EQ / COMP (+ their order)
     {
         const auto M = mixCard;
-        mixerExpand.expanded = mixerOpen;
         const bool cf = masterCompFirst->load() > 0.5f;
         shownMasterCompFirst = cf;
-        if (! mixerOpen)
-        {
-            mixerExpand.setBounds (M.getRight() - 40, M.getY() + 12, 26, 24);
-            knobAt (mix, rel (M, 104, 160), 128, 0, labelAt ({ 0, -100 }));
-            (cf ? masterComp : masterEq).setBounds (M.getX() + 198, M.getY() + 112, 150, 38);
-            (cf ? masterEq : masterComp).setBounds (M.getX() + 198, M.getY() + 164, 150, 38);
-            masterSwap.setBounds (M.getX() + 176, M.getY() + 138, 18, 38);
-        }
-        else
-        {
-            mixerExpand.setBounds (M.getRight() - 38, M.getY() + 8, 26, 24);
-            knobAt (mix, rel (M, 230, 76), 96, 0, labelAt ({ 0, -100 }));
-            (cf ? masterComp : masterEq).setBounds (M.getX() + 330, M.getY() + 40, 214, 32);
-            (cf ? masterEq : masterComp).setBounds (M.getX() + 330, M.getY() + 80, 214, 32);
-            masterSwap.setBounds (M.getX() + 308, M.getY() + 56, 18, 40);
-        }
+        knobAt (mix, rel (M, 104, 160), 128, 0, labelAt ({ 0, -100 }));
+        (cf ? masterComp : masterEq).setBounds (M.getX() + 198, M.getY() + 112, 150, 38);
+        (cf ? masterEq : masterComp).setBounds (M.getX() + 198, M.getY() + 164, 150, 38);
+        masterSwap.setBounds (M.getX() + 176, M.getY() + 138, 18, 38);
         mix.label.setVisible (false);
-        for (auto* st : { &dry, &wet })
-            for (Component* c : { (Component*) &st->fader, (Component*) &st->label, (Component*) &st->meter, (Component*) &st->eqIcon,
-                                  (Component*) &st->compIcon, (Component*) &st->swap, (Component*) &st->mute.button, (Component*) &st->solo.button })
-                c->setVisible (mixerOpen);
-        if (mixerOpen)
-        {
-            mixerCard = { M.getX() + 4, M.getY() + 132, M.getWidth() - 8, M.getHeight() - 136 };
-            layoutStrip (dry, { mixerCard.getX() + 62, mixerCard.getY() + 28, 200, mixerCard.getHeight() - 34 });
-            layoutStrip (wet, { mixerCard.getX() + mixerCard.getWidth() / 2 + 30, mixerCard.getY() + 28, 200, mixerCard.getHeight() - 34 });
-        }
     }
 
     // ---- bottom strip (right): INPUT knob | OUTPUT knob, AUTO

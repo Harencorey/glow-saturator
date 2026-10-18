@@ -56,13 +56,8 @@ public:
     }
 
     // meters (message thread)
-    float takeDryPeak() { return dsp.takeDryPeak(); }
-    float takeWetPeak() { return dsp.takeWetPeak(); }
-    float dryGainReductionDb() const { return dsp.dryGainReductionDb(); }
-    float wetGainReductionDb() const { return dsp.wetGainReductionDb(); }
-    float dryMakeupDb() const { return dsp.dryMakeupDb(); }
+    float takeMasterPeak() { return dsp.takeMasterPeak(); }
     void setEqSolo (int path, int band) { dsp.setEqSolo (path, band); }
-    float wetMakeupDb() const { return dsp.wetMakeupDb(); }
     float masterGainReductionDb() const { return dsp.masterGainReductionDb(); }
     float masterMakeupDb() const { return dsp.masterMakeupDb(); }
     float autoGainDb() const { return dsp.getAutoGainDb(); }
@@ -100,11 +95,11 @@ private:
         void bind (juce::AudioProcessorValueTreeState&, const juce::String& prefix);
         void read (ChannelStrip::Settings&) const;
     };
-    StripParams dryParams, wetParams, masterParams;
+    StripParams masterParams;
 
   public:
-    // older sessions/presets: Dry/Wet faders -> Mix + trims, Keep Lows off where it wasn't stored,
-    // and every parameter the file doesn't mention set to its default
+    // older sessions/presets: Dry/Wet levels -> Mix (+ Output), the Wet strip's EQ/Comp -> the
+    // master's, Keep Lows off where it wasn't stored
     static void upgradeLegacyValues (std::map<juce::String, float>& realUnits);
   private:
 

@@ -34,25 +34,7 @@ private:
         void mouseDown (const juce::MouseEvent& e) override { if (onMouseDown) onMouseDown (e); }
     };
 
-    // One path in the mixer: fader (a trim after the Mix) + meter + EQ/COMP + order + M/S
-    struct Strip
-    {
-        juce::String prefix, name;
-        juce::Slider fader;
-        juce::Label label;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attach;
-        LevelMeter meter;
-        ModuleIcon eqIcon { ModuleIcon::Kind::eq, ModuleIcon::Look::text }, compIcon { ModuleIcon::Kind::comp, ModuleIcon::Look::text };
-        std::atomic<float>* eqOn = nullptr, * compOn = nullptr;
-        SwapButton swap;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> swapAttach;
-        ToggleParam mute, solo;
-        std::atomic<float>* compFirst = nullptr, * muteP = nullptr, * soloP = nullptr;
-        bool shownCompFirst = false, shownHeard = true;
-    };
-    void setupStrip (Strip&, const juce::String& prefix, const juce::String& name);
     void toggleParam (const juce::String& id);
-    void layoutStrip (Strip&, juce::Rectangle<int>);
     void togglePanel (const juce::String& prefix, ModuleIcon::Kind);
     void closePanel();
 
@@ -95,7 +77,8 @@ private:
     GlowProcessor& proc;
     GlowLookAndFeel lnf;
     Body body;
-    bool inputOpen = false, mixerOpen = false;
+    bool inputOpen = false;
+    static constexpr bool mixerOpen = false;   // no expanded mixer any more: Mix + master only
     float uiScale = 0.9f;
     // design-unit geometry (scaled by uiScale): one height for every view, sections add width
     static constexpr int kMargin = 14, kGap = 12, kTop = 54, kCardH = 312, kMainH = 446,
@@ -115,13 +98,11 @@ private:
     Knob drive, even, odd, density, envAmount, envSpeed;
     // MIX & MASTER
     Knob mix;
-    ChevronButton mixerExpand;
     ModuleIcon masterEq { ModuleIcon::Kind::eq, ModuleIcon::Look::wide }, masterComp { ModuleIcon::Kind::comp, ModuleIcon::Look::wide };
     SwapButton masterSwap;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> masterSwapAttach;
     std::atomic<float>* masterEqOn = nullptr, * masterCompOn = nullptr, * masterCompFirst = nullptr;
     bool shownMasterCompFirst = false;
-    Strip dry, wet;
     // bottom strip
     Knob input, output;
     ToggleParam autoGain;
@@ -142,7 +123,7 @@ private:
 
     // layout results (design units)
     int mainH = 256;
-    juce::Rectangle<int> leftCard, centreCard, mixCard, mixerCard, tubeWindow, glowArea, bottomArea, drawerArea;
+    juce::Rectangle<int> leftCard, centreCard, mixCard, tubeWindow, glowArea, bottomArea, drawerArea;
     float lastGlow = -1.0f;
     float glowLevel = 0.0f;   // 0..1, how hard the tubes are working right now (meter ballistics)
 
