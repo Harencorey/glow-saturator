@@ -84,16 +84,14 @@ int main()
 
         // user preset round trip
         const juce::String name = "ProcTest Temp Preset";
-        set ("drive", 63.0f); set ("wetEqOn", 1.0f); set ("wetEqGain2", -7.5f); set ("hpf", 120.0f); set ("wetCompRatio", 5.0f);
+        set ("drive", 63.0f); set ("masterEqOn", 1.0f); set ("masterEqGain2", -7.5f); set ("hpf", 120.0f); set ("masterCompRatio", 5.0f);
         check (pm.isModified(), "changing a knob marks the preset modified");
         check (pm.save (name) && pm.isUser (name) && pm.getCurrentName() == name && ! pm.isModified(), "save writes a user preset and makes it current");
-        set ("wetMute", 1.0f);
         pm.load ("Default");
-        check (val ("drive") < 25.01f && val ("wetEqGain2") > -0.01f, "loading Default resets everything");
-        check (val ("wetMute") > 0.5f, "Mute/Solo are left alone by presets");
+        check (val ("drive") < 25.01f && val ("masterEqGain2") > -0.01f, "loading Default resets everything");
         pm.load (name);
-        check (std::abs (val ("drive") - 63.0f) < 0.02f && std::abs (val ("wetEqGain2") + 7.5f) < 0.02f
-               && std::abs (val ("hpf") - 120.0f) < 0.2f && std::abs (val ("wetCompRatio") - 5.0f) < 0.01f, "user preset loads back exactly");
+        check (std::abs (val ("drive") - 63.0f) < 0.02f && std::abs (val ("masterEqGain2") + 7.5f) < 0.02f
+               && std::abs (val ("hpf") - 120.0f) < 0.2f && std::abs (val ("masterCompRatio") - 5.0f) < 0.01f, "user preset loads back exactly");
 
         // session save/restore keeps the preset name and its "unmodified" state
         juce::MemoryBlock mb; p.getStateInformation (mb);
@@ -113,33 +111,54 @@ int main()
         GlowProcessor r; juce::MemoryBlock mb2; juce::AudioProcessor::copyXmlToBinary (*xml, mb2); r.setStateInformation (mb2.getData(), (int) mb2.getSize());
         check (r.apvts.getParameter ("hpf")->getText (r.apvts.getParameter ("hpf")->getValue(), 10) == "Off", "old session with HPF at 10 Hz loads as Off");
 
-        // a session saved before the Mix knob: Dry -6 / Wet 0 summed -> the same sound as Mix + trims;
-        // no Keep Lows stored -> off; parameters it doesn't mention -> defaults
+        // a session saved before the Mix knob (v0.1.26): Dry -6 / Wet 0 summed, a Wet comp, no Keep Lows
+        //  -> Mix 66.6 % + Output +3.53 dB (the same blend and level), the comp on the master, Keep Lows off
+        auto oldSession = [] (std::function<void (juce::XmlElement&)> edit)
         {
             GlowProcessor fresh;
-            check (fresh.apvts.getRawParameterValue ("keepLows")->load() > 0.5f
-                   && std::abs (fresh.apvts.getRawParameterValue ("mix")->load() - 100.0f) < 1e-3f, "new instance: Keep Lows on, Mix 100 %");
             auto old = fresh.apvts.copyState().createXml();
             juce::Array<juce::XmlElement*> drop;
             for (auto* e : old->getChildWithTagNameIterator ("PARAM"))
             {
                 const auto id = e->getStringAttribute ("id");
                 if (id == "mix" || id == "keepLows" || id == "inputGain" || id.startsWith ("master")) drop.add (e);
-                if (id == "dryLevel") e->setAttribute ("value", -6.0);
-                if (id == "wetLevel") e->setAttribute ("value", 0.0);
-                if (id == "hpf") e->setAttribute ("value", 120.0);
             }
             for (auto* e : drop) old->removeChildElement (e, true);
-            GlowProcessor t;
-            t.apvts.getParameter ("masterEqOn")->setValueNotifyingHost (1.0f);   // must come back as the default
-            juce::MemoryBlock m3; juce::AudioProcessor::copyXmlToBinary (*old, m3); t.setStateInformation (m3.getData(), (int) m3.getSize());
-            auto v = [&t] (const char* id) { return t.apvts.getRawParameterValue (id)->load(); };
-            const float d = juce::Decibels::decibelsToGain (v ("dryLevel")) * (1.0f - v ("mix") * 0.01f);
-            const float w = juce::Decibels::decibelsToGain (v ("wetLevel")) * v ("mix") * 0.01f;
-            check (std::abs (d - juce::Decibels::decibelsToGain (-6.0f)) < 1e-3f && std::abs (w - 1.0f) < 1e-3f,
-                   (juce::String ("old session Dry -6 / Wet 0 -> Mix ") + juce::String (v ("mix"), 1) + " %, trims " + juce::String (v ("dryLevel"), 2) + " dB").toRawUTF8());
+            edit (*old);
+            auto t = std::make_unique<GlowProcessor>();
+            t->apvts.getParameter ("output")->setValueNotifyingHost (0.9f);   // must not leak through
+            juce::MemoryBlock m3; juce::AudioProcessor::copyXmlToBinary (*old, m3); t->setStateInformation (m3.getData(), (int) m3.getSize());
+            return t;
+        };
+        auto addParam = [] (juce::XmlElement& x, const char* id, double value)
+        {
+            auto* e = x.createNewChildElement ("PARAM"); e->setAttribute ("id", id); e->setAttribute ("value", value);
+        };
+        {
+            GlowProcessor fresh;
+            check (fresh.apvts.getRawParameterValue ("keepLows")->load() > 0.5f
+                   && std::abs (fresh.apvts.getRawParameterValue ("mix")->load() - 100.0f) < 1e-3f, "new instance: Keep Lows on, Mix 100 %");
+            auto t = oldSession ([&] (juce::XmlElement& x)
+            {
+                addParam (x, "dryLevel", -6.0); addParam (x, "wetLevel", 0.0);
+                addParam (x, "wetCompOn", 1.0); addParam (x, "wetCompInput", 9.0);
+                for (auto* e : x.getChildWithTagNameIterator ("PARAM")) if (e->getStringAttribute ("id") == "hpf") e->setAttribute ("value", 120.0);
+            });
+            auto v = [&t] (const char* id) { return t->apvts.getRawParameterValue (id)->load(); };
+            const float d = juce::Decibels::decibelsToGain (-6.0f), w = 1.0f;
+            const float g = juce::Decibels::decibelsToGain (v ("output"));
+            check (std::abs (g * (1.0f - v ("mix") * 0.01f) - d) < 2e-3f && std::abs (g * v ("mix") * 0.01f - w) < 2e-3f,
+                   (juce::String ("old session Dry -6 / Wet 0 -> Mix ") + juce::String (v ("mix"), 1) + " %, Output +"
+                    + juce::String (v ("output"), 2) + " dB (same blend and level)").toRawUTF8());
             check (v ("keepLows") < 0.5f, "old session without Keep Lows loads with it off");
-            check (v ("masterEqOn") < 0.5f && std::abs (v ("inputGain")) < 1e-6f, "old session: master off, input 0 dB");
+            check (v ("masterCompOn") > 0.5f && std::abs (v ("masterCompInput") - 9.0f) < 1e-3f && v ("masterEqOn") < 0.5f,
+                   "old session: the Wet comp moves to the master");
+            check (std::abs (v ("inputGain")) < 1e-6f, "old session: input 0 dB");
+        }
+        {   // a default v0.1.26 session (Dry Off): Mix 100 %, Output unchanged
+            auto t = oldSession ([&] (juce::XmlElement& x) { addParam (x, "dryLevel", -60.0); addParam (x, "wetLevel", 0.0); });
+            check (std::abs (t->apvts.getRawParameterValue ("mix")->load() - 100.0f) < 1e-3f
+                   && std::abs (t->apvts.getRawParameterValue ("output")->load()) < 1e-4f, "old default session: Mix 100 %, Output 0 dB");
         }
     }
 
