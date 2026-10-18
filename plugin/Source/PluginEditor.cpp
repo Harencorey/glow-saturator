@@ -53,8 +53,12 @@ void GlowLookAndFeel::drawRotarySlider (Graphics& g, int x, int y, int w, int h,
         const float a = a0 + (float) i / 10.0f * (a1 - a0);
         g.fillEllipse (c.x + rt * std::sin (a) - dotR, c.y - rt * std::cos (a) - dotR, dotR * 2.0f, dotR * 2.0f);
     }
+    // bipolar controls (gain, envelope amount, output trim) grow the arc from 0, not from the minimum
+    float arcFrom = a0;
+    if (s.getMinimum() < 0.0 && s.getMaximum() > 0.0)
+        arcFrom = a0 + (float) s.valueToProportionOfLength (0.0) * (a1 - a0);
     Path progress;
-    progress.addCentredArc (c.x, c.y, rt, rt, 0.0f, a0, ang, true);
+    progress.addCentredArc (c.x, c.y, rt, rt, 0.0f, jmin (arcFrom, ang), jmax (arcFrom, ang), true);
     g.setColour (amber.withAlpha (0.9f * alpha));
     g.strokePath (progress, PathStrokeType (jmax (1.5f, size * 0.012f), PathStrokeType::curved, PathStrokeType::rounded));
     if (nums)
@@ -552,7 +556,7 @@ void GlowEditor::paint (Graphics& g)
     const int eqTop = preEqLink.button.getY() - 12;
     panelBox ({ inputArea.getX(), inputArea.getY(), inputArea.getWidth(), eqTop - inputArea.getY() - 8 });
     panelBox ({ inputArea.getX(), eqTop, inputArea.getWidth(), inputArea.getBottom() - eqTop });
-    panelBox ({ tubeArea.getX(), tubeArea.getY(), tubeArea.getWidth(), 82 });
+    panelBox ({ tubeArea.getX(), tubeArea.getY(), tubeArea.getWidth(), 70 });   // ends above the knob scales
     panelBox ({ outputArea.getX(), outputArea.getY(), outputArea.getWidth(),
                 autoReadout.getBottom() - outputArea.getY() + 18 });
     const int envTop = envAmount.slider.getY() - 25;
@@ -562,8 +566,6 @@ void GlowEditor::paint (Graphics& g)
 
     // INPUT captions, divider, cheat sheet
     caption ("INPUT", { inputArea.getX() + 12, inputArea.getY() + 8, 120, 14 });
-    g.setColour (L::edge);
-    g.fillRect (inputArea.getX() + 12, hpf.label.getBottom() + 6, inputArea.getWidth() - 24, 1);
     caption ("PRE-SAT EQ", { inputArea.getX() + 12, preEqLink.button.getY(), 120, preEqLink.button.getHeight() }, Justification::centredLeft, L::text.withAlpha (0.85f));
     {
         const char* hints[6][2] { { "Drag", "freq + gain" }, { "Cmd drag", "Q" }, { "Opt drag", "freq only" },
@@ -687,6 +689,7 @@ void GlowEditor::paintModDot (Graphics& g)
     const float ang = a0 + pos * (a1 - a0);
     const float knobAng = a0 + (float) sl.valueToProportionOfLength (sl.getValue()) * (a1 - a0);
     Path arc;   // the stretch the envelope is adding/removing
+    rad += 6.0f;   // just outside the copper value arc, which sits on the tick ring
     arc.addCentredArc (c.x, c.y, rad, rad, 0, jmin (ang, knobAng), jmax (ang, knobAng), true);
     g.setColour (GlowLookAndFeel::amber.withAlpha (0.7f));
     g.strokePath (arc, PathStrokeType (3.0f, PathStrokeType::curved, PathStrokeType::rounded));
@@ -780,7 +783,7 @@ void GlowEditor::resized()
         keepLows.button.setBounds (bx, top + 46, 124, 28);
         slope12.setBounds (bx, top + 84, 58, 22);
         slope24.setBounds (bx + 62, top + 84, 58, 22);
-        const int eqTop = hpf.label.getBottom() + 16;
+        const int eqTop = hpf.label.getBottom() + 28;
         preEqOn.button.setBounds (r.getRight() - 44, eqTop, 44, 22);
         preEqLink.button.setBounds (preEqOn.button.getX() - 58, eqTop, 54, 22);
         preCurve.setBounds (r.getX(), eqTop + 30, r.getWidth(), 176);
@@ -789,7 +792,7 @@ void GlowEditor::resized()
     {   // TUBES: tube window, Even / Density / Odd, then Drive
         const int cx = tubeArea.getCentreX();
         tubeWindow = { cx - 125, top + 8, 250, 40 };
-        const int rowY = top + 68;
+        const int rowY = top + 78;
         even.placeBelow ({ cx - 149, rowY, 93, 108 });
         density.placeBelow ({ cx - 38, rowY + 10, 76, 91 });
         odd.placeBelow ({ cx + 56, rowY, 93, 108 });
