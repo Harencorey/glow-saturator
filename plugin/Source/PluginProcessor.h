@@ -38,6 +38,9 @@ public:
     void setStateInformation (const void*, int) override;
 
     juce::UndoManager undoManager;   // the editor's Undo / Redo (parameter changes)
+    // editor view state, kept with the session (not parameters, not undoable): open sections + size
+    bool uiInputOpen = false, uiMixerOpen = false;
+    float uiScale = 0.9f;
     juce::AudioProcessorValueTreeState apvts;
     PresetManager presets { apvts };
 
@@ -60,6 +63,8 @@ public:
     float dryMakeupDb() const { return dsp.dryMakeupDb(); }
     void setEqSolo (int path, int band) { dsp.setEqSolo (path, band); }
     float wetMakeupDb() const { return dsp.wetMakeupDb(); }
+    float masterGainReductionDb() const { return dsp.masterGainReductionDb(); }
+    float masterMakeupDb() const { return dsp.masterMakeupDb(); }
     float autoGainDb() const { return dsp.getAutoGainDb(); }
     float takeDrivenness() { return dsp.takeDrivenness(); }
     float modulatedDrive() const { return dsp.getModulatedDrive(); }
@@ -79,6 +84,7 @@ private:
     std::atomic<float>* pHpf = nullptr;
     std::atomic<float>* pHpf24 = nullptr, * pKeepLows = nullptr;
     std::atomic<float>* pOutput = nullptr, * pAuto = nullptr, * pEnvAmt = nullptr, * pEnvSpeed = nullptr;
+    std::atomic<float>* pInput = nullptr, * pMix = nullptr;
     std::map<std::string, std::atomic<float>*> preEqP;
 
     // raw parameter pointers for one channel strip ("dry" or "wet")
@@ -94,7 +100,13 @@ private:
         void bind (juce::AudioProcessorValueTreeState&, const juce::String& prefix);
         void read (ChannelStrip::Settings&) const;
     };
-    StripParams dryParams, wetParams;
+    StripParams dryParams, wetParams, masterParams;
+
+  public:
+    // older sessions/presets: Dry/Wet faders -> Mix + trims, Keep Lows off where it wasn't stored,
+    // and every parameter the file doesn't mention set to its default
+    static void upgradeLegacyValues (std::map<juce::String, float>& realUnits);
+  private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GlowProcessor)
 };

@@ -112,6 +112,35 @@ int main()
         for (auto* e : xml->getChildWithTagNameIterator ("PARAM")) if (e->getStringAttribute ("id") == "hpf") e->setAttribute ("value", 10.0);
         GlowProcessor r; juce::MemoryBlock mb2; juce::AudioProcessor::copyXmlToBinary (*xml, mb2); r.setStateInformation (mb2.getData(), (int) mb2.getSize());
         check (r.apvts.getParameter ("hpf")->getText (r.apvts.getParameter ("hpf")->getValue(), 10) == "Off", "old session with HPF at 10 Hz loads as Off");
+
+        // a session saved before the Mix knob: Dry -6 / Wet 0 summed -> the same sound as Mix + trims;
+        // no Keep Lows stored -> off; parameters it doesn't mention -> defaults
+        {
+            GlowProcessor fresh;
+            check (fresh.apvts.getRawParameterValue ("keepLows")->load() > 0.5f
+                   && std::abs (fresh.apvts.getRawParameterValue ("mix")->load() - 100.0f) < 1e-3f, "new instance: Keep Lows on, Mix 100 %");
+            auto old = fresh.apvts.copyState().createXml();
+            juce::Array<juce::XmlElement*> drop;
+            for (auto* e : old->getChildWithTagNameIterator ("PARAM"))
+            {
+                const auto id = e->getStringAttribute ("id");
+                if (id == "mix" || id == "keepLows" || id == "inputGain" || id.startsWith ("master")) drop.add (e);
+                if (id == "dryLevel") e->setAttribute ("value", -6.0);
+                if (id == "wetLevel") e->setAttribute ("value", 0.0);
+                if (id == "hpf") e->setAttribute ("value", 120.0);
+            }
+            for (auto* e : drop) old->removeChildElement (e, true);
+            GlowProcessor t;
+            t.apvts.getParameter ("masterEqOn")->setValueNotifyingHost (1.0f);   // must come back as the default
+            juce::MemoryBlock m3; juce::AudioProcessor::copyXmlToBinary (*old, m3); t.setStateInformation (m3.getData(), (int) m3.getSize());
+            auto v = [&t] (const char* id) { return t.apvts.getRawParameterValue (id)->load(); };
+            const float d = juce::Decibels::decibelsToGain (v ("dryLevel")) * (1.0f - v ("mix") * 0.01f);
+            const float w = juce::Decibels::decibelsToGain (v ("wetLevel")) * v ("mix") * 0.01f;
+            check (std::abs (d - juce::Decibels::decibelsToGain (-6.0f)) < 1e-3f && std::abs (w - 1.0f) < 1e-3f,
+                   (juce::String ("old session Dry -6 / Wet 0 -> Mix ") + juce::String (v ("mix"), 1) + " %, trims " + juce::String (v ("dryLevel"), 2) + " dB").toRawUTF8());
+            check (v ("keepLows") < 0.5f, "old session without Keep Lows loads with it off");
+            check (v ("masterEqOn") < 0.5f && std::abs (v ("inputGain")) < 1e-6f, "old session: master off, input 0 dB");
+        }
     }
 
     // ---- Drive glow meter ----

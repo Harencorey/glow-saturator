@@ -11,7 +11,12 @@ class ModuleIcon : public juce::Button, private juce::Timer
 {
 public:
     enum class Kind { eq, comp };
-    ModuleIcon (Kind k) : juce::Button (k == Kind::eq ? "EQ" : "COMP"), kind (k) {}
+    // icon: the old square icon; text: "EQ" / "COMP" with an on-state outline (mixer strips);
+    // wide: lamp + curve + name + open arrow (master). On 'wide', clicking the lamp switches it.
+    enum class Look { icon, text, wide };
+    ModuleIcon (Kind k, Look l = Look::icon) : juce::Button (k == Kind::eq ? "EQ" : "COMP"), kind (k), look (l) {}
+
+    void mouseDown (const juce::MouseEvent& e) override { lampHit = look == Look::wide && e.x < 30; juce::Button::mouseDown (e); }
 
     // Single click opens/closes the panel; double-click ONLY switches the module on/off.
     // A click waits out the double-click window first, so a double-click never opens a panel.
@@ -30,6 +35,7 @@ public:
 
     void paintButton (juce::Graphics& g, bool over, bool) override
     {
+        if (look != Look::icon) { paintModern (g, over); return; }
         auto r = getLocalBounds().toFloat().reduced (1.0f);
         g.setColour (on ? GlowLookAndFeel::amber.withAlpha (over ? 0.12f : 0.06f) : GlowLookAndFeel::well.brighter (over ? 0.12f : 0.0f));
         g.fillRoundedRectangle (r, 4.0f);
@@ -65,10 +71,60 @@ public:
     }
 
 private:
+    void paintModern (juce::Graphics& g, bool over)
+    {
+        using L = GlowLookAndFeel;
+        auto r = getLocalBounds().toFloat().reduced (0.5f);
+        g.setColour (on ? L::amber.withAlpha (over ? 0.12f : 0.06f) : L::well.brighter (over ? 0.12f : 0.0f));
+        g.fillRoundedRectangle (r, 4.0f);
+        g.setColour (open ? L::text : (on ? L::amber.withAlpha (0.9f) : L::edge.brighter (over ? 0.35f : 0.18f)));
+        g.drawRoundedRectangle (r, 4.0f, open ? 1.5f : 1.0f);
+        const auto txt = on ? L::amber : L::text.withAlpha (0.85f);
+        if (look == Look::text)
+        {
+            g.setColour (txt);
+            g.setFont (juce::FontOptions (juce::jmin (11.5f, r.getHeight() * 0.5f)).withKerningFactor (0.12f));
+            g.drawText (getName(), r, juce::Justification::centred);
+            return;
+        }
+        // wide: lamp | little curve | name | open-arrow
+        L::drawLamp (g, { r.getX() + 16.0f, r.getCentreY() }, 4.0f, on);
+        auto icon = juce::Rectangle<float> (r.getX() + 34.0f, r.getCentreY() - 7.0f, 30.0f, 14.0f);
+        juce::Path p;
+        if (kind == Kind::eq)
+            for (int i = 0; i <= 20; ++i)
+            {
+                const float t = (float) i / 20.0f;
+                const float y = std::exp (-std::pow ((t - 0.6f) * 4.0f, 2.0f)) - 0.35f * std::exp (-std::pow ((t - 0.2f) * 6.0f, 2.0f));
+                const juce::Point<float> pt (icon.getX() + t * icon.getWidth(), icon.getCentreY() - y * icon.getHeight() * 0.55f);
+                if (i == 0) p.startNewSubPath (pt); else p.lineTo (pt);
+            }
+        else
+        {
+            p.startNewSubPath (icon.getX(), icon.getBottom());
+            p.lineTo (icon.getX() + icon.getWidth() * 0.55f, icon.getY() + icon.getHeight() * 0.35f);
+            p.quadraticTo (icon.getX() + icon.getWidth() * 0.7f, icon.getY() + icon.getHeight() * 0.2f, icon.getRight(), icon.getY());
+        }
+        g.setColour (txt);
+        g.strokePath (p, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setFont (juce::FontOptions (12.0f).withKerningFactor (0.12f));
+        g.drawText (getName(), juce::Rectangle<float> (icon.getRight() + 12.0f, r.getY(), 70.0f, r.getHeight()), juce::Justification::centredLeft);
+        // open arrow: a small box with an arrow out of its corner
+        auto ob = juce::Rectangle<float> (r.getRight() - 28.0f, r.getCentreY() - 7.0f, 14.0f, 14.0f);
+        g.setColour (L::text.withAlpha (over ? 0.95f : 0.7f));
+        juce::Path box;
+        box.startNewSubPath (ob.getX() + 6.0f, ob.getY());
+        box.lineTo (ob.getX(), ob.getY()); box.lineTo (ob.getX(), ob.getBottom()); box.lineTo (ob.getRight(), ob.getBottom()); box.lineTo (ob.getRight(), ob.getY() + 8.0f);
+        box.startNewSubPath (ob.getX() + 6.0f, ob.getY() + 8.0f); box.lineTo (ob.getRight(), ob.getY());
+        box.startNewSubPath (ob.getRight() - 5.0f, ob.getY()); box.lineTo (ob.getRight(), ob.getY()); box.lineTo (ob.getRight(), ob.getY() + 5.0f);
+        g.strokePath (box, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
     using juce::Button::clicked;
     void clicked() override
     {
         if (swallowNextClick) { swallowNextClick = false; return; }
+        if (lampHit) { lampHit = false; if (onDoubleClick) onDoubleClick(); return; }   // wide: the lamp switches it
         startTimer (juce::MouseEvent::getDoubleClickTimeout() + 20);
     }
     void timerCallback() override
@@ -78,7 +134,8 @@ private:
     }
 
     Kind kind;
-    bool on = false, open = false, swallowNextClick = false;
+    Look look;
+    bool on = false, open = false, swallowNextClick = false, lampHit = false;
 };
 
 //==============================================================================
@@ -125,15 +182,16 @@ public:
     void paint (juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
-        g.setColour (juce::Colours::black.withAlpha (0.5f));
-        g.fillRoundedRectangle (r.translated (0.0f, 3.0f), 10.0f);
-        g.setColour (GlowLookAndFeel::section.brighter (0.05f));
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillRoundedRectangle (r.translated (0.0f, 2.0f), 10.0f);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff1a1815), 0.0f, r.getY(), juce::Colour (0xff121110), 0.0f, r.getBottom(), false));
         g.fillRoundedRectangle (r, 10.0f);
-        g.setColour (GlowLookAndFeel::amber.withAlpha (0.6f));
+        g.setColour (juce::Colour (0xff2e2a25));
         g.drawRoundedRectangle (r.reduced (0.5f), 10.0f, 1.0f);
-        g.setColour (GlowLookAndFeel::text);
-        g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
-        g.drawText (titleText, getLocalBounds().removeFromTop (36).reduced (16, 0), juce::Justification::centredLeft);
+        GlowLookAndFeel::drawLamp (g, { 22.0f, 18.0f }, 4.5f, true);
+        g.setColour (GlowLookAndFeel::text.withAlpha (0.9f));
+        g.setFont (juce::FontOptions (13.0f).withKerningFactor (0.3f));
+        g.drawText (titleText, getLocalBounds().removeFromTop (36).withTrimmedLeft (36), juce::Justification::centredLeft);
     }
 
     void resized() override
@@ -671,7 +729,7 @@ class EqPanel : public ModulePanel
 public:
     void setSoloHandler (std::function<void (int)> f) override { curve.onSolo = std::move (f); }
     EqPanel (juce::AudioProcessorValueTreeState& s, const juce::String& prefix, const juce::String& pathName)
-        : ModulePanel (s, pathName + "  ·  EQ", prefix + "EqOn"), curve (s, prefix)
+        : ModulePanel (s, juce::String::fromUTF8 ("GLOW  \xe2\x80\x94  ") + pathName + " EQUALIZER", prefix + "EqOn"), curve (s, prefix)
     {
         addAndMakeVisible (curve);
         const float defF[4] { 80.0f, 400.0f, 2500.0f, 10000.0f }, defQ[4] { 0.7f, 1.0f, 1.0f, 0.7f };
@@ -711,7 +769,7 @@ public:
 protected:
     void layoutContent (juce::Rectangle<int> r) override
     {
-        curve.setBounds (r.removeFromTop (juce::jmax (140, r.getHeight() - 150)));   // knobs keep ~150 px, the curve gets the rest
+        curve.setBounds (r.removeFromTop (juce::jmax (90, r.getHeight() - 150)));   // knobs keep ~150 px, the curve gets the rest
         r.removeFromTop (6);
         const int w = r.getWidth() / 4;
         for (int b = 0; b < 4; ++b)
@@ -778,7 +836,7 @@ class CompPanel : public ModulePanel
 public:
     CompPanel (juce::AudioProcessorValueTreeState& s, const juce::String& prefix, const juce::String& pathName,
                std::function<float()> grSource, std::function<float()> makeupSource)
-        : ModulePanel (s, pathName + "  ·  COMP", prefix + "CompOn"),
+        : ModulePanel (s, juce::String::fromUTF8 ("GLOW  \xe2\x80\x94  ") + pathName + " COMPRESSOR", prefix + "CompOn"),
           ratio (s, prefix + "CompRatio", 4), colour (s, prefix + "CompColour", 3), getGr (std::move (grSource)), getMakeup (std::move (makeupSource))
     {
         input.setup (*this, s, prefix + "CompInput", "INPUT", 0.0);

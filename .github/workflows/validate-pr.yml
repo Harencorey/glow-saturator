@@ -67,9 +67,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          printf '%s\n' "**Glow GUI test build** from PR #1 (${GITHUB_SHA::7}), the new warm-black / amber design. Not merged yet." "" "The plug-in window shows **v0.1.99**. Installing replaces your current Glow; reinstall v0.1.26 to go back." "Passed Apple auval and pluginval (strictness 10)." > notes.md
+          printf '%s\n' "**Glow GUI test build** (${GITHUB_SHA::7}) from branch gui/workstation-redesign: compact + expandable layout, Mix knob, Input gain, Master EQ/Comp. Not merged yet." "" "The plug-in window shows **v0.1.99**. Installing replaces your current Glow; reinstall v0.1.26 to go back." "Passed Apple auval and pluginval (strictness 10)." > notes.md
           gh release delete gui-test --yes --cleanup-tag 2>/dev/null || true
           git tag -f gui-test "$GITHUB_SHA"
           git push -f origin refs/tags/gui-test
-          gh release create gui-test out/Glow-Installer.pkg --verify-tag --prerelease --latest=false --title "Glow GUI test build (PR #1)" --notes-file notes.md
+          gh release create gui-test out/Glow-Installer.pkg --verify-tag --prerelease --latest=false --title "Glow GUI test build (workstation layout)" --notes-file notes.md
           gh release edit gui-test --draft=false

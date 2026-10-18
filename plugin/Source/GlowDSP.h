@@ -84,7 +84,25 @@ public:
         bool preEqLink = false; // mirror it after the tubes at opposite gain
         ChannelStrip::Settings dry { ChannelStrip::kOffDb, {}, {} };   // dry path off by default
         ChannelStrip::Settings wet { 0.0f, {}, {} };                   // wet path at unity
+        float inputDb = 0.0f;   // -24..+24 dB input trim, before everything (auto gain measures before it)
+        float mix = 100.0f;     // 0..100 %: linear crossfade dry (0) .. wet (100), after the strip faders
+        ChannelStrip::Settings master { 0.0f, {}, {} };                // master EQ + comp after the mix (off by default)
     };
+
+    // Older settings had only independent Dry/Wet faders, summed. Turns them into the equivalent
+    // Mix + post-mix trims (the same sound): Mix = w / (w + d), both trims = w + d (linear gains).
+    // A path that was Off becomes a 0 dB trim on the side the Mix has fully faded out.
+    static void legacyMix (float dryDb, float wetDb, float& mix, float& newDryDb, float& newWetDb)
+    {
+        const float off = ChannelStrip::kOffDb;
+        const float d = dryDb <= off ? 0.0f : juce::Decibels::decibelsToGain (dryDb);
+        const float w = wetDb <= off ? 0.0f : juce::Decibels::decibelsToGain (wetDb);
+        newDryDb = dryDb; newWetDb = wetDb;
+        if (d <= 0.0f)      { mix = 100.0f; newDryDb = 0.0f; return; }
+        if (w <= 0.0f)      { mix = 0.0f;   newWetDb = 0.0f; return; }
+        mix = 100.0f * w / (w + d);
+        newDryDb = newWetDb = juce::jmin (6.0f, juce::Decibels::gainToDecibels (w + d));
+    }
 
     void prepare (double sampleRate, int maxBlock, int numChannels)
     {
@@ -108,6 +126,12 @@ public:
         dryBuf.setSize (channels, maxBlock, false, true, true);
         dryStrip.prepare (sr, channels, maxBlock);
         wetStrip.prepare (sr, channels, maxBlock);
+        masterStrip.prepare (sr, channels, maxBlock);
+        masterPartner.prepare (sr, channels, maxBlock);
+        // master off = a pure delay of the same length (bit-transparent, same latency)
+        masterDelayLen = masterStrip.getLatencySamples();
+        masterDelay.setSize (channels, juce::jmax (1, masterDelayLen), false, true, true);
+        masterTmp.setSize (channels, maxBlock, false, true, true);
 
         ch.assign ((size_t) channels, Channel {});
         hpf[0].stage.prepare (sr, maxBlock, Coherent::Kind::highPass);     // 24 dB/oct
@@ -149,6 +173,9 @@ public:
         smPre.reset (sr, 0.05);
         smPost.reset (sr, 0.05);
         smOut.reset (sr, 0.05);
+        smIn.reset (sr, 0.05);
+        smMixW.reset (sr, 0.03);
+        smMixD.reset (sr, 0.03);
         smDrive.reset (sr, 0.05);
         smDensity.reset (sr, 0.05);
         smEven.reset (sr, 0.05);
@@ -163,6 +190,11 @@ public:
         if (dryOversampler) dryOversampler->reset();
         dryStrip.reset();
         wetStrip.reset();
+        masterStrip.reset();
+        masterPartner.reset();
+        masterDelay.clear();
+        masterDelayPos = 0;
+        masterBlend = (params.master.eq.on || params.master.comp.on) ? 1.0f : 0.0f;
         for (auto& c : ch)
         {
             c.hp1.reset(); c.hp2.reset(); c.bump.reset(); c.dip.reset();
@@ -185,7 +217,8 @@ public:
     // tube-stage oversampling + the channel strips' colour oversampling (same on both paths)
     int getLatencySamples() const
     {
-        return (oversampler ? (int) std::round (oversampler->getLatencyInSamples()) : 0) + wetStrip.getLatencySamples();
+        return (oversampler ? (int) std::round (oversampler->getLatencyInSamples()) : 0) + wetStrip.getLatencySamples()
+               + masterStrip.getLatencySamples();
     }
 
     void setParams (const Params& p)
@@ -196,6 +229,10 @@ public:
         smEven.setTargetValue (p.even);
         smOdd.setTargetValue (p.odd);
         smOut.setTargetValue (juce::Decibels::decibelsToGain (p.outputDb));
+        smIn.setTargetValue (juce::Decibels::decibelsToGain (p.inputDb));
+        const float m = juce::jlimit (0.0f, 1.0f, p.mix * 0.01f);
+        smMixW.setTargetValue (m);
+        smMixD.setTargetValue (1.0f - m);
     }
 
     void process (juce::dsp::AudioBlock<float>& block)
@@ -223,6 +260,17 @@ public:
         const int nch = juce::jmin ((int) block.getNumChannels(), channels);
         if (n == 0) return;
         measureLoudness (block, nch, n, true);   // input loudness, before anything touches it
+        if (firstBlock) smIn.setCurrentAndTargetValue (smIn.getTargetValue());
+        if (smIn.isSmoothing() || std::abs (smIn.getTargetValue() - 1.0f) > 1.0e-6f)
+        {
+            for (int c = 0; c < nch; ++c)   // input trim (auto gain still references the untrimmed input)
+            {
+                auto* x = block.getChannelPointer ((size_t) c);
+                auto g = smIn;
+                for (int i = 0; i < n; ++i) x[i] *= g.getNextValue();
+            }
+            smIn.skip (n);
+        }
         followEnvelope (block, nch, n);          // envelope follower -> envOffset (Drive units)
 
         if (firstBlock)
@@ -233,7 +281,14 @@ public:
             smEven.setCurrentAndTargetValue (params.even);
             smOdd.setCurrentAndTargetValue (params.odd);
             smOut.setCurrentAndTargetValue (smOut.getTargetValue());
+            smMixW.setCurrentAndTargetValue (smMixW.getTargetValue());
+            smMixD.setCurrentAndTargetValue (smMixD.getTargetValue());
         }
+        // Mix: a path the crossfade has fully faded out is switched off (no CPU, no phase-locking)
+        if (smMixD.getTargetValue() <= 1.0e-6f && ! smMixD.isSmoothing()) params.dry.levelDb = ChannelStrip::kOffDb;
+        if (smMixW.getTargetValue() <= 1.0e-6f && ! smMixW.isSmoothing()) params.wet.levelDb = ChannelStrip::kOffDb;
+        params.master.audible = true;
+        params.master.mute = params.master.solo = false;
 
         // This block's filter plans. Both paths read the same plans, so every filter and its
         // all-pass twin move (and switch in/out) in lockstep.
@@ -270,6 +325,8 @@ public:
             postEqF.plan (mirror, true, n, false);   // linked pair: ordinary filters, exact inverse
         }
         const bool dryActive = dryStrip.isActive (params.dry);
+        masterStrip.planEq (params.master, true, n, false);       // after the sum: ordinary (minimum-phase) EQ
+        masterPartner.planEq (ChannelStrip::Settings {}, false, n, false);
         wetStrip.planEq (params.wet, wetStrip.isActive (params.wet), n, dryHeard);
         dryStrip.planEq (params.dry, dryActive, n, wetHeard);
 
@@ -509,8 +566,30 @@ public:
         auto wetBlock = block.getSubsetChannelBlock (0, (size_t) nch);
         wetStrip.process (wetBlock, params.wet, dryStrip);
         dryStrip.process (dry, params.dry, wetStrip);
+        // Mix: linear crossfade (the paths are phase-locked copies, so equal-power would bump the middle)
+        {
+            const bool moving = smMixW.isSmoothing();
+            for (int c = 0; c < nch; ++c)
+            {
+                auto* w = wetBlock.getChannelPointer ((size_t) c);
+                auto* d = dry.getChannelPointer ((size_t) c);
+                auto gw = smMixW, gd = smMixD;
+                if (moving)
+                    for (int i = 0; i < n; ++i) { w[i] *= gw.getNextValue(); d[i] *= gd.getNextValue(); }
+                else
+                {
+                    const float a = gw.getTargetValue(), b = gd.getTargetValue();
+                    if (! juce::exactlyEqual (a, 1.0f)) for (int i = 0; i < n; ++i) w[i] *= a;
+                    if (! juce::exactlyEqual (b, 1.0f)) for (int i = 0; i < n; ++i) d[i] *= b;
+                }
+            }
+            smMixW.skip (n);
+            smMixD.skip (n);
+        }
         if (testSolo == 2) wetBlock.copyFrom (dry);    // measurement hook (render tool only)
         else if (testSolo != 1) wetBlock.add (dry);
+
+        processMaster (wetBlock, nch, n);
 
         // auto gain: always measured (so switching it on lands on the right level at once),
         // applied only when enabled. Then the Output trim on top.
@@ -538,6 +617,51 @@ public:
         autoMeter.store (params.autoGain ? autoApplied : 0.0f);
         applyBandSolo (block, nch, n);
         if ((sampleCount + n) % kEnvChunk == 0) updateEnvOffset();
+    }
+
+    // Master EQ + comp on the sum. While both are off the sum goes through a plain delay of the
+    // strip's latency instead, so old settings stay bit-identical; switching crossfades over 20 ms.
+    void processMaster (juce::dsp::AudioBlock<float>& block, int nch, int n)
+    {
+        auto delayed = juce::dsp::AudioBlock<float> (masterTmp).getSubsetChannelBlock (0, (size_t) nch).getSubBlock (0, (size_t) n);
+        delayed.copyFrom (block);
+        if (masterDelayLen > 0)
+        {
+            int pos = masterDelayPos;
+            for (int c = 0; c < nch; ++c)
+            {
+                auto* x = delayed.getChannelPointer ((size_t) c);
+                auto* ring = masterDelay.getWritePointer (c);
+                pos = masterDelayPos;
+                for (int i = 0; i < n; ++i)
+                {
+                    const float out = ring[pos];
+                    ring[pos] = x[i];
+                    x[i] = out;
+                    if (++pos == masterDelayLen) pos = 0;
+                }
+            }
+            masterDelayPos = pos;
+        }
+        const float target = (params.master.eq.on || params.master.comp.on) ? 1.0f : 0.0f;
+        // the strip keeps running while it's off (its filters stay warm, so it fades in cleanly)
+        masterStrip.process (block, params.master, masterPartner);
+        if (target <= 0.0f && masterBlend <= 0.0f) { block.copyFrom (delayed); return; }
+        if (target >= 1.0f && masterBlend >= 1.0f) return;
+        const float step = (float) (1.0 / (0.02 * sr)) * (target > masterBlend ? 1.0f : -1.0f);
+        float m = masterBlend;
+        for (int c = 0; c < nch; ++c)
+        {
+            auto* y = block.getChannelPointer ((size_t) c);
+            const auto* d = delayed.getChannelPointer ((size_t) c);
+            m = masterBlend;
+            for (int i = 0; i < n; ++i)
+            {
+                m = juce::jlimit (0.0f, 1.0f, m + step);
+                y[i] = d[i] + m * (y[i] - d[i]);
+            }
+        }
+        masterBlend = m;
     }
 
     // UI: highest distortion-to-signal power ratio since the last call (then cleared)
@@ -685,7 +809,7 @@ private:
         if (! want && soloMix <= 0.0f) return;
         if (want)
         {
-            const EqSettings& e = path == 1 ? params.dry.eq : path == 2 ? params.wet.eq : params.preEq;
+            const EqSettings& e = path == 1 ? params.dry.eq : path == 2 ? params.wet.eq : path == 4 ? params.master.eq : params.preEq;
             const double f = juce::jlimit (20.0, 0.45 * sr, (double) e.freq[band]);
             const double q = juce::jlimit (0.1, 10.0, (double) e.q[band]);   // same range as the band's Q
             Biquad proto;
@@ -731,7 +855,11 @@ private:
     std::unique_ptr<juce::dsp::Oversampling<float>> oversampler;
     std::unique_ptr<juce::dsp::Oversampling<float>> dryOversampler;
     juce::AudioBuffer<float> dryBuf;
-    ChannelStrip dryStrip, wetStrip;
+    ChannelStrip dryStrip, wetStrip, masterStrip;
+    ChannelStrip masterPartner;   // never audible: only stands in as the master's (unused) phase partner
+    juce::AudioBuffer<float> masterDelay, masterTmp;
+    int masterDelayLen = 0, masterDelayPos = 0;
+    float masterBlend = 0.0f;
 
 public:
     // meters for the UI (call from the message thread)
@@ -741,8 +869,11 @@ public:
     float wetGainReductionDb() const { return wetStrip.getGainReductionDb(); }
     float dryMakeupDb() const { return dryStrip.getMakeupDb(); }
     float wetMakeupDb() const { return wetStrip.getMakeupDb(); }
+    float masterGainReductionDb() const { return masterStrip.getGainReductionDb(); }
+    float masterMakeupDb() const { return masterStrip.getMakeupDb(); }
 private:
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smPre { 1.0f }, smPost { 1.0f }, smOut { 1.0f };
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smPre { 1.0f }, smPost { 1.0f }, smOut { 1.0f }, smIn { 1.0f };
+    juce::SmoothedValue<float> smMixW { 1.0f }, smMixD { 0.0f };   // Mix crossfade gains
     juce::SmoothedValue<float> smDrive, smDensity, smEven, smOdd;
     bool firstBlock = true;
     // user HPF, one per slope: plan, wet-path filter, dry-path all-pass, and the pair Keep lows uses
