@@ -981,7 +981,7 @@ void GlowEditor::layoutStrip (Strip& st, Rectangle<int> r)
     const int x = r.getX(), y = r.getY();
     st.label.setBounds (x + 40, y, 70, 14);
     st.meter.setBounds (x + 42, y + 22, 8, 10);   // height set below from the fader travel
-    st.fader.setBounds (x + 62, y + 14, 22, 92);
+    st.fader.setBounds (x + 62, y + 14, 22, 80);   // leaves room for the value under it inside the card
     const int yTop = st.fader.getY() + (int) st.fader.getPositionOfValue (st.fader.getMaximum());
     const int yBot = st.fader.getY() + (int) st.fader.getPositionOfValue (st.fader.getMinimum());
     st.meter.setBounds (x + 42, yTop, 8, jmax (10, yBot - yTop));
