@@ -1,0 +1,57 @@
+name: Validate PR build (no release)
+
+on:
+  push:
+    branches: [ci/pr1-macos-validate]
+
+jobs:
+  validate:
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      ART: plugin/build-mac/Glow_artefacts/Release
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (downloads JUCE 8.0.15)
+        working-directory: plugin
+        run: cmake -B build-mac -DCMAKE_BUILD_TYPE=Release -DGLOW_VERSION=0.1.0
+      - name: Build (warnings shown)
+        working-directory: plugin
+        run: |
+          cmake --build build-mac --config Release --target Glow_AU Glow_VST3 Glow_Standalone -j "$(sysctl -n hw.ncpu)" 2>&1 | tee build.log
+          echo "warnings in Source/:"; grep -E "Source/.*warning:" build.log | sort -u || true
+          test "${PIPESTATUS[0]}" = "0"
+      - name: Check binaries are universal
+        run: |
+          lipo -info "$ART/AU/Glow.component/Contents/MacOS/Glow"
+          lipo -info "$ART/VST3/Glow.vst3/Contents/MacOS/Glow"
+      - name: Ad-hoc sign + install
+        run: |
+          codesign --force --deep --sign - "$ART/AU/Glow.component" "$ART/VST3/Glow.vst3" "$ART/Standalone/Glow.app"
+          bash packaging/make_pkg.sh "$ART" 0.1.0 out
+          rm -rf ~/Library/Audio/Plug-Ins/Components/Glow.component ~/Library/Audio/Plug-Ins/VST3/Glow.vst3
+          sudo installer -pkg out/Glow-Installer.pkg -target /
+      - name: auval
+        run: |
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          sleep 3
+          auval -v aufx Glw1 Nrka | tee auval.log
+          grep -q "AU VALIDATION SUCCEEDED" auval.log
+      - name: pluginval (strictness 10, VST3 + AU)
+        run: |
+          curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip
+          unzip -q pluginval.zip
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process /Library/Audio/Plug-Ins/VST3/Glow.vst3
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process /Library/Audio/Plug-Ins/Components/Glow.component
+      - name: macOS screenshot (best effort)
+        continue-on-error: true
+        run: |
+          "$ART/Standalone/Glow.app/Contents/MacOS/Glow" &
+          sleep 12
+          screencapture -x out/macos-screen.png
+          kill %1 || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Glow-PR1-macOS
+          path: out/*
+          retention-days: 7
