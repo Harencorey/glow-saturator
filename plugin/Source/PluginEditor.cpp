@@ -548,9 +548,16 @@ void GlowEditor::paint (Graphics& g)
         g.setFont (FontOptions (11.5f, Font::bold).withKerningFactor (0.28f));
         g.drawText (t, r, j);
     };
-    panelBox (inputArea);
-    panelBox (tubeArea);
-    panelBox (outputArea);
+    // Functional groups match the signal flow without changing component ownership.
+    const int eqTop = preEqLink.button.getY() - 12;
+    panelBox ({ inputArea.getX(), inputArea.getY(), inputArea.getWidth(), eqTop - inputArea.getY() - 8 });
+    panelBox ({ inputArea.getX(), eqTop, inputArea.getWidth(), inputArea.getBottom() - eqTop });
+    panelBox ({ tubeArea.getX(), tubeArea.getY(), tubeArea.getWidth(), 82 });
+    panelBox ({ outputArea.getX(), outputArea.getY(), outputArea.getWidth(),
+                autoReadout.getBottom() - outputArea.getY() + 18 });
+    const int envTop = envAmount.slider.getY() - 25;
+    const int envBottom = jmin (outputArea.getBottom(), envAmount.label.getBottom() + 14);
+    panelBox ({ outputArea.getX(), envTop, outputArea.getWidth(), envBottom - envTop });
     panelBox (mixArea);
 
     // INPUT captions, divider, cheat sheet
