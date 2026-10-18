@@ -687,36 +687,39 @@ void GlowEditor::paintModDot (Graphics& g)
     GlowLookAndFeel::drawLamp (g, pt, 4.0f, true);
 }
 
-// Dotted lead from the envelope controls to the Drive ring: "these move Drive".
+// Discreet horizontal signal-flow hint between ENVELOPE and the Drive ring.
+// Uses the existing editor-only geometry; no processor interaction or allocation beyond drawing.
 void GlowEditor::paintLead (Graphics& g)
 {
     if (panel != nullptr) return;
-    Point<float> c; float rad;
-    driveGeometry (drive.slider, c, rad);
-    c += drive.slider.getPosition().toFloat();
-    const float a = MathConstants<float>::pi * (121.0f / 180.0f);
-    const Point<float> end (c.x + (rad + 3.0f) * std::sin (a), c.y - (rad + 3.0f) * std::cos (a));
-    const auto amt = envAmount.slider.getBounds().toFloat();
-    const Point<float> start (amt.getX() + 2.0f, amt.getCentreY());
-    Path p;
-    p.startNewSubPath (start);
-    p.cubicTo (start.x - 18.0f, start.y + 70.0f, end.x + 60.0f, end.y + 26.0f, end.x, end.y);
+
+    Point<float> localCentre;
+    float ringRadius = 0.0f;
+    driveGeometry (drive.slider, localCentre, ringRadius);
+    const auto driveCentre = localCentre + drive.slider.getPosition().toFloat();
+    const auto envelope = envAmount.slider.getBounds().toFloat();
+
+    // The right-hand intersection of the ring at the envelope knob's centre height.
+    // A single y coordinate keeps the lead perfectly straight at every layout size.
+    const float y = envelope.getCentreY();
+    const float dy = y - driveCentre.y;
+    if (std::abs (dy) >= ringRadius) return;
+    const float endX = driveCentre.x + std::sqrt (ringRadius * ringRadius - dy * dy);
+    const float startX = envelope.getX() - 5.0f;
+    if (startX <= endX + 8.0f) return;
+
+    Path line;
+    line.startNewSubPath (endX, y);
+    line.lineTo (startX, y);
+    constexpr float dashLengths[] { 1.5f, 5.0f };
+    Path dashes;
+    PathStrokeType (1.0f).createDashedStroke (dashes, line, dashLengths, 2);
+
     const bool active = shownModDrive >= 0.0f;
-    const float dash[] { 2.0f, 5.0f };
-    Path dotted;
-    PathStrokeType (1.5f, PathStrokeType::curved, PathStrokeType::rounded).createDashedStroke (dotted, p, dash, 2);
-    g.setColour (GlowLookAndFeel::amber.withAlpha (active ? 0.85f : 0.4f));
-    g.fillPath (dotted);
-    GlowLookAndFeel::drawLamp (g, start, 2.5f, active);
-    // arrowhead pointing into the ring
-    const auto dir = (end - Point<float> (end.x + 14.0f, end.y + 8.0f));
-    const float len = std::sqrt (dir.x * dir.x + dir.y * dir.y);
-    const Point<float> u (dir.x / len, dir.y / len), nrm (-u.y, u.x);
-    Path head;
-    head.startNewSubPath (end - u * 7.0f + nrm * 4.0f);
-    head.lineTo (end);
-    head.lineTo (end - u * 7.0f - nrm * 4.0f);
-    g.strokePath (head, PathStrokeType (1.5f, PathStrokeType::curved, PathStrokeType::rounded));
+    g.setColour (GlowLookAndFeel::amber.withAlpha (active ? 0.45f : 0.25f));
+    g.fillPath (dashes);
+    g.setColour (GlowLookAndFeel::amber.withAlpha (active ? 0.65f : 0.38f));
+    g.fillEllipse (endX - 1.6f, y - 1.6f, 3.2f, 3.2f);
 }
 
 void GlowEditor::layoutStrip (Strip& st, Rectangle<int> r)
