@@ -15,12 +15,17 @@ jobs:
       - name: Configure (downloads JUCE 8.0.15)
         working-directory: plugin
         run: cmake -B build-mac -DCMAKE_BUILD_TYPE=Release -DGLOW_VERSION=0.1.0
-      - name: Build (warnings shown)
+      - name: Build (errors/warnings as annotations)
         working-directory: plugin
+        shell: bash
         run: |
-          cmake --build build-mac --config Release --target Glow_AU Glow_VST3 Glow_Standalone -j "$(sysctl -n hw.ncpu)" 2>&1 | tee build.log
-          echo "warnings in Source/:"; grep -E "Source/.*warning:" build.log | sort -u || true
-          test "${PIPESTATUS[0]}" = "0"
+          set +e +o pipefail
+          cmake --build build-mac --config Release --target Glow_AU Glow_VST3 Glow_Standalone -j "$(sysctl -n hw.ncpu)" > build.log 2>&1
+          st=$?
+          grep -E "(error|warning):" build.log | grep -v "ld: warning" | sort -u | head -40 | while IFS= read -r l; do echo "::warning::$l"; done
+          if [ $st -ne 0 ]; then tail -60 build.log | while IFS= read -r l; do echo "::error::$l"; done; fi
+          echo "build exit $st"
+          exit $st
       - name: Check binaries are universal
         run: |
           lipo -info "$ART/AU/Glow.component/Contents/MacOS/Glow"
