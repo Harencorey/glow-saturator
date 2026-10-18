@@ -23,6 +23,7 @@ int main (int argc, char** argv)
 
     GlowDSP::Params p;
     int block = 512, solo = 0, bsPath = 0, bsBand = -1;
+    bool explicitMix = false;
     // settings before the first at= apply from the start; each at=<seconds> starts a new
     // automation point whose settings are applied on top of the previous ones at that time
     std::vector<std::pair<double, std::vector<juce::String>>> points { { 0.0, {} } };
@@ -32,7 +33,7 @@ int main (int argc, char** argv)
         if (arg.startsWith ("at=")) points.push_back ({ arg.substring (3).getDoubleValue(), {} });
         else points.back().second.push_back (arg);
     }
-    auto apply = [&p, &block, &solo, &bsPath, &bsBand] (const juce::String& arg) -> bool
+    auto apply = [&p, &block, &solo, &bsPath, &bsBand, &explicitMix] (const juce::String& arg) -> bool
     {
         const auto key = arg.upToFirstOccurrenceOf ("=", false, false);
         const float v = arg.fromFirstOccurrenceOf ("=", false, false).getFloatValue();
@@ -86,6 +87,21 @@ int main (int argc, char** argv)
         else if (key == "peqHQ")   p.preEq.q[3] = v;
         else if (key == "peqHF")   p.preEq.freq[3] = v;
         else if (key == "peqHG")   p.preEq.gain[3] = v;
+        else if (key == "xmix")    { p.mix = v; explicitMix = true; }   // new Mix knob (0..100 %)
+        else if (key == "inDb")    p.inputDb = v;
+        else if (key.startsWith ("master"))   // master EQ/comp: masterEq=1 masterG2=4 masterComp=1 masterIn=..
+        {
+            const auto k = key.fromFirstOccurrenceOf ("master", false, false);
+            auto& st = p.master;
+            if (k == "Eq") st.eq.on = v > 0.5f;
+            else if (k.startsWith ("F")) st.eq.freq[k.getTrailingIntValue() - 1] = v;
+            else if (k.startsWith ("G")) st.eq.gain[k.getTrailingIntValue() - 1] = v;
+            else if (k.startsWith ("Q")) st.eq.q[k.getTrailingIntValue() - 1] = v;
+            else if (k == "Comp") st.comp.on = v > 0.5f;
+            else if (k == "In") st.comp.inputDb = v;
+            else if (k == "Ratio") st.comp.ratio = (int) v;
+            else return false;
+        }
         else if (key == "block")   block = juce::jmax (1, (int) v);
         else if (key == "solo")    solo = (int) v;   // 1 = wet path only, 2 = dry path only (both still run)
         else if (key == "bsPath")  bsPath = (int) v; // EQ band solo: path 1 dry, 2 wet, 3 pre ...
@@ -98,6 +114,12 @@ int main (int argc, char** argv)
             if (! apply (arg)) { std::printf ("unknown option %s\n", arg.toRawUTF8()); return 1; }
     p = GlowDSP::Params {};
     for (auto& arg : points.front().second) apply (arg);
+    // without xmix=, dry/wet keys keep their old meaning (independent faders, summed)
+    auto withMix = [&explicitMix] (GlowDSP::Params q)
+    {
+        if (! explicitMix) GlowDSP::legacyMix (q.dry.levelDb, q.wet.levelDb, q.mix, q.dry.levelDb, q.wet.levelDb);
+        return q;
+    };
 
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
@@ -108,7 +130,7 @@ int main (int argc, char** argv)
     const int len = (int) reader->lengthInSamples;
     GlowDSP dsp;
     dsp.prepare (reader->sampleRate, block, nch);
-    dsp.setParams (p);
+    dsp.setParams (withMix (p));
     dsp.testSolo = solo;
     dsp.setEqSolo (bsPath, bsBand);
     const int lat = dsp.getLatencySamples();
@@ -125,7 +147,7 @@ int main (int argc, char** argv)
         while (nextPoint < points.size() && start >= (int) (points[nextPoint].first * reader->sampleRate))
         {
             for (auto& arg : points[nextPoint].second) apply (arg);
-            dsp.setParams (p);
+            dsp.setParams (withMix (p));
             ++nextPoint;
         }
         const int n = juce::jmin (block, buf.getNumSamples() - start);
