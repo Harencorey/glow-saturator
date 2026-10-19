@@ -332,8 +332,8 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     envSpeed.setup (body, s, "envSpeed", "ENV SPEED", 50.0, 10.0f);
     for (auto* k : { &even, &odd, &density, &envAmount, &envSpeed }) k->numbers();
     for (auto* k : { &drive, &even, &odd, &density, &envAmount, &envSpeed }) k->popupValue();
-    drive.tip ("DRIVE: how hard the tubes are pushed, for more of both even and odd harmonics. The glow and the tube meter "
-               "show how hard they're working on the incoming audio.");
+    drive.tip ("DRIVE: how hard the saturation (the TYPE below) is pushed, for more of both even and odd harmonics. The glow "
+               "and the tube meter show how hard it's working on the incoming audio.");
     even.tip ("EVEN: 2nd/4th harmonics (warmth, thickness). 50% = as voiced, 0% = none, 100% = 3x.");
     odd.tip ("ODD: 3rd/5th harmonics (edge, grit, clipping). 50% = as voiced; the level is matched for you.");
     density.tip ("DENSITY: how hard the first tube stage is hit. More = lopsided bloom and 'breathing' after loud hits.");
@@ -378,6 +378,19 @@ GlowEditor::GlowEditor (GlowProcessor& p)
             for (int i = 0; i < 4; ++i)
                 sb[i]->onClick = [this, i] { slopeAttach->setValueAsCompleteGesture ((float) i); };
         }
+    }
+    // ---- drive TYPE
+    for (int i = 0; i < 5; ++i)
+    {
+        typeBtn[i].setClickingTogglesState (false);
+        body.addAndMakeVisible (typeBtn[i]);
+    }
+    if (auto* tp = s.getParameter ("driveType"))
+    {
+        typeAttach = std::make_unique<ParameterAttachment> (*tp, [this] (float v) { showType ((int) std::lround (v)); });
+        typeAttach->sendInitialUpdate();
+        for (int i = 0; i < 5; ++i)
+            typeBtn[i].onClick = [this, i] { typeAttach->setValueAsCompleteGesture ((float) i); };
     }
     preEqLink.setup (body, s, "preEqLink", "MIRROR");
     preEqLink.button.getProperties().set ("lamp", true);
@@ -545,6 +558,29 @@ void GlowEditor::closePanel()
         panel.reset();
         applyLayout();
     }
+}
+
+void GlowEditor::showType (int t)
+{
+    t = jlimit (0, 4, t);
+    for (int i = 0; i < 5; ++i) typeBtn[i].setToggleState (i == t, dontSendNotification);
+    static const char* what[] {
+        "TUBE: two triode stages, the original Glow sound. Warm even + odd harmonics, bloom, and 'breathing' after loud hits.",
+        "IRON: a console output transformer. The lows thicken and compress while the highs stay clean and open.",
+        "TAPE: 15 ips tape. Soft, rounded saturation; loud highs soften first, so transients round off.",
+        "DIODE: a diode clipper, overdrive-pedal style. Harder than tube, odd-heavy bite that stays musical.",
+        "CLIP: a hard clipper. Clean right up to the ceiling, then flat-tops (antialiased, so it stays clean up top)." };
+    static const char* dens[] {
+        "DENSITY: how hard the first tube stage is hit. More = lopsided bloom and 'breathing' after loud hits.",
+        "DENSITY (Iron): core size. Low = a big core, only the deepest lows saturate. High = a small core, the saturation "
+        "reaches up into the low mids (thicker, grittier).",
+        "DENSITY (Tape): tape level. Higher = the highs start to soften earlier and lower down (more self-erasure, rounder "
+        "transients).",
+        "DENSITY (Diode): the diodes. Low = germanium (soft knee, gentle). High = silicon (hard knee, more bite).",
+        "DENSITY (Clip): the corner. Low = slightly rounded. High = brickwall." };
+    for (int i = 0; i < 5; ++i) typeBtn[i].setTooltip (what[i]);
+    density.tip (dens[t]);
+    body.repaint();
 }
 
 void GlowEditor::showSizeMenu()
@@ -808,6 +844,12 @@ void GlowEditor::paintBody (Graphics& g)
         small ("0%", b.getCentreX() - S * 0.40f, b.getCentreY() + S * 0.42f);
         small ("100%", b.getCentreX() + S * 0.40f, b.getCentreY() + S * 0.42f);
     }
+    {   // drive TYPE label
+        const auto tb = typeBtn[0].getBounds();
+        g.setColour (L::textDim);
+        g.setFont (FontOptions (11.0f).withKerningFactor (0.3f));
+        g.drawText ("TYPE", tb.getX() - 52, tb.getY(), 44, tb.getHeight(), Justification::centredRight);
+    }
     // ---- bottom strip: INPUT | OUTPUT  AUTO
     g.setColour (Colour (0xff2a2622));
     g.fillRect (bottomArea.getX() + 140, bottomArea.getY() + 4, 1, 22);
@@ -971,7 +1013,11 @@ void GlowEditor::applyLayout()
         knobAt (input, { R - 240, cy - 4 }, 44, 13, { R - 316, cy - 11, 48, 14 });
         knobAt (output, { R - 156, cy - 4 }, 44, 13, { R - 130, cy - 11, 56, 14 });
         autoGain.button.setBounds (R - 70, cy - 14, 74, 28);
-        const int mx = leftCard.getX() + 30, mw = jmin (470, bottomArea.getX() - 40 - mx);
+        // drive TYPE: centred under the Drive knob, its label to the left
+        const int tw = 60, tg = 4, groupW = 5 * tw + 4 * tg, tx0 = centreCard.getCentreX() - groupW / 2;
+        for (int i = 0; i < 5; ++i)
+            typeBtn[i].setBounds (tx0 + i * (tw + tg), cy - 14, tw, 28);
+        const int mx = leftCard.getX() + 30, mw = jmin (470, tx0 - 52 - 24 - mx);
         inMeter.setBounds (mx, cy - 24, mw, 12);
         outMeter.setBounds (mx, cy - 4, mw, 25);
     }

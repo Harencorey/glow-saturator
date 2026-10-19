@@ -18,16 +18,17 @@ def worst_alias(R, f0, lvl, **kw):
     return 20 * np.log10(S[~harm].max() / S[np.argmin(np.abs(f - f0))])
 
 
-cases = [("Drive 50, -12 dBFS", dict(drive=50), -12), ("Drive 75, -6 dBFS", dict(drive=75), -6),
-         ("Drive 100, -6 dBFS", dict(drive=100), -6), ("Drive 100, 0 dBFS (extreme)", dict(drive=100), 0),
-         ("Drive 50 + Odd 100, -6 dBFS", dict(drive=50, odd=100), -6),
-         ("Comp Dist 3 on wet, Input +18, -6 dBFS", dict(drive=0, wetComp=1, wetRatio=0, wetIn=18, wetColour=2), -6),
-         ("Comp Dist 2 on wet, Input +18, -6 dBFS", dict(drive=0, wetComp=1, wetRatio=0, wetIn=18, wetColour=1), -6)]
-bins = dict(x.split("=") for x in sys.argv[1:])
-freqs = (3100.0, 7300.0, 11700.0, 15300.0)
-print(f"{'case':42s}" + "".join(f"{n:>9s}" for n in bins) + "   (worst over " + ", ".join(f"{int(f)}" for f in freqs) + " Hz)")
-for name, kw, lvl in cases:
-    row = f"{name:42s}"
-    for n, R in bins.items():
-        row += f"{max(worst_alias(R, f0, lvl, **kw) for f0 in freqs):9.1f}"
-    print(row + "  dBc")
+if __name__ == "__main__":
+    cases = [("Drive 50, -12 dBFS", dict(drive=50), -12), ("Drive 75, -6 dBFS", dict(drive=75), -6),
+             ("Drive 100, -6 dBFS", dict(drive=100), -6), ("Drive 100, 0 dBFS (extreme)", dict(drive=100), 0),
+             ("Drive 50 + Odd 100, -6 dBFS", dict(drive=50, odd=100), -6),
+             ("Comp Dist 3 on wet, Input +18, -6 dBFS", dict(drive=0, wetComp=1, wetRatio=0, wetIn=18, wetColour=2), -6),
+             ("Comp Dist 2 on wet, Input +18, -6 dBFS", dict(drive=0, wetComp=1, wetRatio=0, wetIn=18, wetColour=1), -6)]
+    bins = dict(x.split("=") for x in sys.argv[1:])
+    freqs = (3100.0, 7300.0, 11700.0, 15300.0)
+    print(f"{'case':42s}" + "".join(f"{n:>9s}" for n in bins) + "   (worst over " + ", ".join(f"{int(f)}" for f in freqs) + " Hz)")
+    for name, kw, lvl in cases:
+        row = f"{name:42s}"
+        for n, R in bins.items():
+            row += f"{max(worst_alias(R, f0, lvl, **kw) for f0 in freqs):9.1f}"
+        print(row + "  dBc")

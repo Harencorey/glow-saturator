@@ -4,6 +4,8 @@
 #include "DriveMap.h"
 #include "ChannelStrip.h"
 #include "DryPhase.h"
+#include "DriveTypes.h"
+#include "TypeMap.h"
 
 // The whole signal path, independent of the plugin wrapper so the offline
 // render tool (tools/RenderTool.cpp) runs the exact same code the plugin does.
@@ -68,6 +70,7 @@ public:
     static constexpr float kHpfOffHz = 19.0f, kHpfMinHz = 20.0f;
     struct Params
     {
+        int type = DriveTypes::tube;   // TUBE / IRON / TAPE / DIODE / CLIP
         float drive = 25.0f;    // 0..100     macro: more of both even and odd
         float even = 50.0f;     // 0..100     50 = as measured, 0 = no even harmonics, 100 = 3x
         float odd = 50.0f;      // 0..100     50 = as measured, -/+12 dB of clipping depth at 0/100
@@ -139,6 +142,7 @@ public:
             c.dc.setHighPass (DriveMap::post.dcFc, DriveMap::post.dcQ, sr);
             c.inter.setHighPass (DriveMap::st1.hpFc, DriveMap::st1.hpQ,
                                  sr * (double) oversampler->getOversamplingFactor());
+            c.inter2 = c.inter;   // the other types: the same coupling cap (their own copy)
             for (int k = 0; k < DryPhase::numSecondOrder; ++k)
                 c.dryPhase[(size_t) k].setAllPass (DryPhase::secondOrder[k].fc, DryPhase::secondOrder[k].q, sr);
             // Keep lows: the tube path's fixed linear voicing (the interstage cap at base rate)
@@ -186,7 +190,7 @@ public:
         for (auto& c : ch)
         {
             c.hp1.reset(); c.hp2.reset(); c.bump.reset(); c.dip.reset();
-            c.dc.reset(); c.inter.reset();
+            c.dc.reset(); c.inter.reset(); c.inter2.reset(); c.ts.reset();
             for (auto& f : c.dryPhase) f.reset();
         }
         for (auto& h : hpf) h.reset();
@@ -194,6 +198,8 @@ public:
         keepMix = params.keepLows ? 1.0f : 0.0f;
         oddMakeup = 1.0f;
         oddPowAvg = refPowAvg = 0.0f;
+        curType = oldType = juce::jlimit (0, (int) DriveTypes::count - 1, params.type);
+        typeFade = 0.0f;
         for (auto* k : { &kIn, &kOut }) for (auto& c : *k) { c[0].reset(); c[1].reset(); }
         inShort = outShort = inBlock = inLong = outLong = 0.0f;
         autoGainDb = autoApplied = 0.0f;
@@ -398,7 +404,8 @@ public:
         const KneeTable& kneeOut = envOn ? kneeCache[(size_t) juce::jlimit (0, 100, (int) std::lround (driveNow))] : knee2;
         // Density scales how hard the input stage is hit: 50 % = as measured,
         // 100 % = +12 dB hotter (more lopsided, more "breathing"), 0 % = clean input stage.
-        const float dn = smDensity.skip (n) / 50.0f;
+        const float densityNow = smDensity.skip (n);
+        const float dn = densityNow / 50.0f;
         const float amount = juce::jmax (dn * dn, 1.0e-3f);
         const float k1 = DriveMap::st1.inGain * amount;   // into the input stage
         const float k1inv = 1.0f / k1;                     // and back to unity
@@ -412,8 +419,31 @@ public:
         // what the output stage gives at the nominal Odd setting, whatever the material.
         const bool oddActive = std::abs (oddDb) > 1.0e-4f || std::abs (oddMakeup - 1.0f) > 1.0e-4f;
         const float oddInv = juce::Decibels::decibelsToGain (-oddDb);
-        smPre.setTargetValue (juce::Decibels::decibelsToGain (shape.preDb + oddDb));
-        smPost.setTargetValue (juce::Decibels::decibelsToGain (shape.postDb) * oddMakeup);
+        // ---- drive type: a switch crossfades the old core into the new one (25 ms) ----
+        const int wantType = juce::jlimit (0, (int) DriveTypes::count - 1, params.type);
+        auto typePreDb = [&] (int t) { return t == DriveTypes::tube ? shape.preDb : TypeMap::preDb (t, driveNow); };
+        auto typePostDb = [&] (int t) { return t == DriveTypes::tube ? shape.postDb : TypeMap::postDb (t, driveNow); };
+        // (a switch that arrives mid-crossfade waits until it's done: <= 25 ms)
+        if (wantType != curType && ! firstBlock && typeFade <= 0.0f)
+        {
+            // the outgoing core keeps its own gain staging while it fades out. The output gain
+            // (after the downsampling) glides to the new type's; inside the oversampled loop both
+            // cores are blended in final-output units and the glide is divided back out, so the
+            // oversampled signal never steps (a step there would ring through the filters).
+            oldType = curType;
+            oldG = smPre.getCurrentValue();
+            oldP = smPost.getCurrentValue();
+            curType = wantType;
+            typeFade = 1.0f;
+            postComp = true;
+            for (auto& c : ch) c.ts.resetType (curType);   // (every core's filters run warm all the time)
+            oddMakeup = 1.0f;   // the Odd auto-gain re-learns for the new core
+            oddPowAvg = refPowAvg = 0.0f;
+            smPre.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (typePreDb (curType) + oddDb));
+        }
+        else if (firstBlock) curType = oldType = wantType;
+        smPre.setTargetValue (juce::Decibels::decibelsToGain (typePreDb (curType) + oddDb));
+        smPost.setTargetValue (juce::Decibels::decibelsToGain (typePostDb (curType)) * oddMakeup);
         if (firstBlock)
         {
             smPre.setCurrentAndTargetValue (smPre.getTargetValue());
@@ -449,6 +479,19 @@ public:
         if (! envOn && knee2.needs (shape.sharp)) knee2.build (shape.sharp);   // only while Drive moves
         double powOdd = 0.0, powRef = 0.0;   // block energy: actual vs nominal-Odd output stage
         float sumDist = 0.0f, sumOut = 0.0f; // for the glow meter: distortion vs clean-signal energy
+        if (postComp && ! smPost.isSmoothing() && typeFade <= 0.0f) postComp = false;
+        const bool otherTypes = curType != DriveTypes::tube || typeFade > 0.0f || postComp;
+        // the output gain over this block (for the switch compensation)
+        const float pStart = smPost.getCurrentValue();
+        float pEnd = pStart;
+        { auto cp = smPost; cp.skip (n); pEnd = cp.getCurrentValue(); }
+        const float pTarget = smPost.getTargetValue();
+        const float fadeStart = typeFade;
+        const auto typeSet = DriveTypes::settingsFor (densityNow, sr * (double) oversampler->getOversamplingFactor());
+        if (otherTypes)
+            processOtherTypes (up, nch, nu, g0, gStep, k1, k1inv, kneeOut, shape, evenGain, oddActive, oddInv,
+                               densityNow, pStart, pEnd, pTarget, powOdd, powRef, sumDist, sumOut);
+        else
         for (int c = 0; c < nch; ++c)
         {
             auto* u = up.getChannelPointer ((size_t) c);
@@ -456,6 +499,10 @@ public:
             float g = g0;
             for (int i = 0; i < nu; ++i, g += gStep)
             {
+                {   // keep the other types' filters warm (they don't touch this path's output)
+                    const float v2 = (float) s.inter2.process ((double) u[i]);
+                    s.ts.update (typeSet, v2);
+                }
                 // input stage: unity for small signals, bends lopsidedly when hit hard
                 const float w = stage (u[i] * k1, knee1, DriveMap::st1.asym, DriveMap::st1.k2, evenGain);
                 // coupling cap: its DC shift is what makes hot passages clip lopsided,
@@ -537,7 +584,12 @@ public:
                 {
                     km = target > km ? juce::jmin (target, km + step) : juce::jmax (target, km + step);
                     const float t = (float) (i + 1) / (float) n;
-                    const float gw = (g0 + (g1 - g0) * t) * (p0 + (p1 - p0) * t);
+                    float gw = (g0 + (g1 - g0) * t) * (p0 + (p1 - p0) * t);
+                    if (postComp)   // after a type switch: blend the two cores' clean gains like the cores
+                    {
+                        const float fd = fadeStart + (typeFade - fadeStart) * t;
+                        gw = fd * oldG * oldP + (1.0f - fd) * (g0 + (g1 - g0) * t) * pTarget;
+                    }
                     y[i] += km * gw * l[i];
                 }
                 kEnd = km;
@@ -657,6 +709,75 @@ public:
     }
 
 private:
+    // The oversampled nonlinearity for the IRON / TAPE / DIODE / CLIP types, and for any type
+    // switch (old and new core run side by side for 25 ms and crossfade). Tube alone uses the
+    // loop in process(), untouched.
+    void processOtherTypes (juce::dsp::AudioBlock<float>& up, int nch, int nu, float g0, float gStep,
+                            float k1, float k1inv, const KneeTable& kneeOut, const DriveMap::Shape& shape,
+                            float evenGain, bool oddActive, float oddInv, float density,
+                            float pStart, float pEnd, float pTarget, double& powOdd, double& powRef, float& sumDist, float& sumOut)
+    {
+        using namespace DriveTypes;
+        const double fsOs = sr * (double) oversampler->getOversamplingFactor();
+        const auto set = settingsFor (density, fsOs);
+        const float oddLin = 1.0f / oddInv;   // the Odd gain inside the drive gain
+        const bool diodeUsed = curType == diode || (typeFade > 0.0f && oldType == diode);
+        if (diodeUsed && diodeKnee.needs (diodeSharp (density))) diodeKnee.build (diodeSharp (density));
+        const float fadeStep = (float) (1.0 / (0.025 * fsOs));
+        float fadeEnd = typeFade;
+        for (int c = 0; c < nch; ++c)
+        {
+            auto* u = up.getChannelPointer ((size_t) c);
+            auto& s = ch[(size_t) c];
+            float g = g0, f = typeFade;
+            const float pStep = (pEnd - pStart) / (float) nu;
+            float pt = pStart;
+            for (int i = 0; i < nu; ++i, g += gStep, pt += pStep)
+            {
+                const float ui = u[i];
+                // the coupling cap: the tube path's sits after its input stage; the other
+                // types have no input stage, so theirs sees the signal directly
+                // both fronts and every core's filters always run, so a switch never wakes a cold filter
+                const float wT = stage (ui * k1, knee1, DriveMap::st1.asym, DriveMap::st1.k2, evenGain);
+                const float vT = (float) s.inter.process ((double) wT) * k1inv;
+                const float v2 = (float) s.inter2.process ((double) ui);
+                s.ts.update (set, v2);
+                auto run = [&] (int t, float gain)
+                {
+                    if (t == tube) return stage (vT * gain, kneeOut, shape.asym, shape.k2, evenGain);
+                    return DriveTypes::process (t, s.ts, set, diodeKnee, v2, gain, oddLin, evenGain);
+                };
+                float y = run (curType, g);
+                const float lin = (curType == tube ? vT : v2) * g;   // a clean path's output
+                if (oddActive && (i & 3) == 0)
+                {
+                    const float yRef = curType == tube ? stage (vT * g * oddInv, kneeOut, shape.asym, shape.k2, evenGain)
+                                                       : DriveTypes::peek (curType, s.ts, set, diodeKnee, v2, g, oddLin, oddInv, evenGain);
+                    powOdd += (double) y * y;
+                    powRef += (double) yRef * yRef;
+                }
+                const float dist = curType == tube ? (y - lin) + g * (wT - ui * k1) * k1inv : y - lin;
+                sumDist += dist * dist;
+                sumOut += lin * lin;
+                if (postComp)
+                {
+                    // final-output units / the gliding output gain (see the switch in process())
+                    const float inv = 1.0f / pt;
+                    y *= pTarget * inv;
+                    if (f > 0.0f)
+                    {
+                        const float yo = run (oldType, oldG) * oldP * inv;
+                        y = yo + (y - yo) * (1.0f - f);
+                        f = juce::jmax (0.0f, f - fadeStep);
+                    }
+                }
+                u[i] = y;
+            }
+            fadeEnd = f;
+        }
+        typeFade = fadeEnd;
+    }
+
     size_t osStages = 3;   // set in prepare() from the sample rate
 
     // Loudness for auto gain: K-weighted (ITU BS.1770 curve: ~+4 dB above 1.5 kHz, rolled off
@@ -800,6 +921,8 @@ private:
     {
         Biquad hp1, hp2, bump, dip, dc;    // fixed (measured) EQ
         Biquad inter; // interstage coupling cap, runs at the oversampled rate
+        Biquad inter2; // the same cap for the other drive types (so a crossfade can run both)
+        DriveTypes::State ts;   // the other drive types' memory
         std::array<Biquad, DryPhase::numSecondOrder> dryPhase;   // dry-path phase match
         Biquad kHp1, kHp2, kBump, kDip, kInter, kDc;               // Keep lows: the tube path's fixed voicing
         void resetKeep() { for (auto* b : { &kHp1, &kHp2, &kBump, &kDip, &kInter, &kDc }) b->reset(); }
@@ -833,6 +956,12 @@ public:
 private:
     juce::SmoothedValue<float> smDrive, smDensity, smEven, smOdd;
     bool firstBlock = true;
+    // drive type: the active core, and the one fading out after a switch
+    int curType = DriveTypes::tube, oldType = DriveTypes::tube;
+    float typeFade = 0.0f;           // 1 -> 0: weight of the outgoing core
+    float oldG = 1.0f, oldP = 1.0f;  // outgoing core's drive gain and output gain
+    KneeTable diodeKnee;             // DIODE curve (rebuilt only when Density moves)
+    bool postComp = false;           // after a switch: output gain still gliding to the new type's
     // user HPF, one per slope: plan, wet-path filter, dry-path all-pass, and the pair Keep lows uses
     struct Hpf
     {

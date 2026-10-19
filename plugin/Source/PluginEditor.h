@@ -81,6 +81,11 @@ private:
     LampButton preEqLamp;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> preEqLampAttach;
     juce::TextButton slope6 { "6" }, slope12 { "12" }, slope24 { "24" }, slope36 { "36" };   // HPF slope, dB/oct
+    // drive type selector (bottom strip, under Drive)
+    juce::TextButton typeBtn[5] { juce::TextButton ("TUBE"), juce::TextButton ("IRON"), juce::TextButton ("TAPE"),
+                                  juce::TextButton ("DIODE"), juce::TextButton ("CLIP") };
+    std::unique_ptr<juce::ParameterAttachment> typeAttach;
+    void showType (int t);   // highlights the button and sets the type-specific help text
     std::unique_ptr<juce::ParameterAttachment> slopeAttach;
     EqCurve preCurve;
     // SATURATION

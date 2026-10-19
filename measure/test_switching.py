@@ -22,6 +22,8 @@ SCEN = {
                                                   "at=2.0", "peqLink=0", "at=2.5", "peqMG=0"]),
     "HPF slope 24 -> 6 -> 36 -> 12, Keep lows on/off": (80, ["hpf=150", "keep=1", "at=0.5", "slope=0", "at=1.0", "slope=3", "at=1.5",
                                                              "slope=1", "keep=0", "at=2.0", "slope=0", "at=2.5", "slope=3"]),
+    "drive type TUBE -> IRON -> TAPE -> DIODE -> CLIP -> TUBE": (300, ["keep=1", "hpf=100", "at=0.5", "type=1", "at=1.0", "type=2",
+                                                               "at=1.5", "type=3", "at=2.0", "type=4", "at=2.5", "type=0"]),
     "Keep lows on/off @ 80 Hz": (80, ["hpf=150", "at=0.5", "keep=1", "at=1.0", "keep=0", "at=1.5", "keep=1", "hpf24=0", "at=2.0", "hpf=19", "at=2.5", "hpf=200"]),
     "comps on/off, Mix moves": (1000, ["wetIn=18", "wetColour=1", "wetMix=50", "dryIn=12", "dryColour=2", "dryMix=30",
                                        "at=0.5", "wetComp=1", "at=1.0", "dryComp=1", "at=1.5", "wetMix=100", "dryMix=0",
