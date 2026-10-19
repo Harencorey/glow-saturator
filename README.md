@@ -23,7 +23,7 @@ For Logic, you can validate the AU with `auval -v aufx Glw1 Nrka`.
 
 The bar at the top: click the name for the menu, use **<** / **>** to step through presets, and **SAVE** to store the current settings.
 A **\*** after the name means you've changed something since loading it.
-- **Factory presets** are starting points: Default, Subtle Warmth, Tube Bus Glue, Vocal Air & Grit, Bass Weight, Parallel Drum Smash, Lo-Fi Crush.
+- **Factory presets** are starting points: Default, Subtle Warmth, Tube Bus Glue, Vocal Air & Grit, Bass Weight, Parallel Drum Smash, Lo-Fi Crush, Iron Console Bus, Tape Glue, Diode Grit, Clip Smash.
 - **Your presets** are plain files in `~/Library/Audio/Presets/Norka DSP/Glow/` (*.glowpreset), so you can back them up or copy them to another Mac.
   The menu has Save As, Delete, and Show Presets Folder.
 - A preset stores every setting **except Mute and Solo**, so loading one never silences what you're listening to.
@@ -49,15 +49,16 @@ presets, **A/B** and **undo/redo**. Right-click the background for the interface
 | **Pre-sat EQ** | The small curve at the top of the card: what goes into the tubes. It's the whole EQ (there's no separate expanded view). **M** = a fully parametric mid bell (40 Hz–12 kHz, ±15 dB, Q 0.1–10), **H** = a high shelf (1–20 kHz, Q shapes the corner: 0.71 plain, higher adds the passive-style bump/dip). The curve includes the high-pass (cut region shaded). **Drag** a point = frequency + gain, **Cmd-drag** = Q, **Option-drag** = frequency only, **hold Shift** = solo the band, **double-click** = bypass the band, Option-double-click = gain to 0 dB. Dragging switches the EQ on. The lamp next to PRE-SAT EQ switches it on/off. |
 | **MIRROR** | (Was LINK.) The exact opposite EQ runs after the tubes (the dashed mirror curve), so you change *what saturates* (push the mids into the tubes, say) while the overall tone stays put. Measured: linked, it nets to 0.00 dB on clean signal. **With Mirror off there is no post EQ**: shape the saturated sound with the Wet EQ instead. Note: boosting into the tubes makes them compress harder, so with Mirror the tone stays put but the level drops (about 2.5 dB for +8 dB mid / +6 dB high at Drive 50); turn on Auto to compare at matched loudness. |
 
-**Tubes**
+**Saturation** (the middle section, with **TYPE** under it)
 | Control | What it does |
 |---|---|
+| **TYPE** | Which saturation engine Drive pushes. **TUBE**: two triode stages, the original Glow sound (bit-identical to earlier versions). **IRON**: a console output transformer; the core saturates on flux, so the lows thicken and compress while the highs stay clean and open. **TAPE**: 15 ips tape; soft, mostly odd saturation, and loud highs soften first (self-erasure), so transients round off. **DIODE**: a diode clipper, overdrive-pedal style; harder than tube, odd-heavy bite. **CLIP**: a true hard clipper, clean right up to the ceiling, then flat-topped, with antiderivative antialiasing (worst aliasing −78 dBc even at Drive 100 with a 0 dBFS top-octave tone). Every type is exactly clean at low level, so Mix, Keep Lows and the Dry/Wet phase lock work the same in all of them. Each type's output staging is calibrated so its loudness follows TUBE's across the Drive range (IRON's makeup is capped at +3 dB so it never turns up the highs; it can sit a few dB quieter on bass-heavy material, which Auto Gain covers). Switching crossfades over 25 ms and is click-free, even while playing. |
 | **Drive** | Macro control: more of both even and odd harmonics. Partly auto-gained, like BB Tubes. The glow around the knob is a meter: it brightens with how hard the tubes are actually working on the incoming audio (quiet input at low Drive barely lights it, hot input or high Drive makes it bloom) and settles to a faint glow showing the knob setting when nothing's playing. |
 | **Envelope Amount** | (low left of Drive; the dotted lead runs to the Drive ring) Envelope follower: Drive follows the input's dynamics. **+** pushes louder moments harder (hits grit up, quiet parts stay clean); **−** gives quiet parts more drive and loud parts less (steady, even colour). It reacts to the material's own dynamics (moments rising above its ~3 s average), so it works the same at any track level, up to ±50 Drive. **The Drive knob is the resting point:** with + the follower only ever adds drive above the knob, with − it only takes drive away, and it always comes back to exactly the knob setting, never past it. The dot and line on the Drive ring show where it's pushing Drive. Off at 12 o'clock. |
 | **Envelope Speed** | How fast the envelope follows: fast (1 ms attack / 25 ms release) catches individual hits, slow (60 ms / 1.5 s) follows phrases. |
-| **Even** | Scales only the even-symmetric part of each tube stage's curve, so it moves 2nd/4th/6th harmonics without touching the odd ones. 0 % = no even harmonics, 50 % = as measured, 100 % = 3×. |
-| **Odd** | How hard the output stage clips: ±12 dB around where Drive puts it. Symmetric clipping makes the 3rd/5th/7th harmonics. Adaptive auto-gain keeps the loudness steady (within ±0.25 dB on test material). |
-| **Density** | How hard the input tube stage is hit. 50 % = matched; higher gives more lopsided bloom and "breathing" after loud hits. |
+| **Even** | (Same in every type.) Scales only the even-symmetric part of each stage's curve, so it moves 2nd/4th/6th harmonics without touching the odd ones. 0 % = no even harmonics, 50 % = as measured, 100 % = 3×. |
+| **Odd** | (Same in every type.) How hard the output stage clips: ±12 dB around where Drive puts it (in IRON it pushes only the core, never the clean highs). Symmetric clipping makes the 3rd/5th/7th harmonics. Adaptive auto-gain keeps the loudness steady (within ±0.25 dB on test material). |
+| **Density** | Each type's own character control (the tooltip changes with TYPE). **TUBE**: how hard the input stage is hit; higher = more lopsided bloom and "breathing" after loud hits. **IRON**: core size; low = only the deepest lows saturate, high = the saturation reaches into the low mids (~40 → 400 Hz). **TAPE**: tape level; higher = the highs soften earlier and lower down (12 → 3 kHz). **DIODE**: germanium (soft knee) → silicon (hard knee). **CLIP**: the corner, slightly rounded → brickwall. |
 
 **Mix, Dry / Wet modules, meters**
 | Control | What it does |
@@ -134,6 +135,7 @@ in ─┬─ HPF → pre-sat EQ → input coupling HPFs (~24 Hz res.) → low bu
 - `Source/GlowDSP.h`: the entire signal path (shared by the plug-in and the render tool).
 - `Source/DriveMap.h`: fitted constants, **generated** by `model/gen_drivemap.py`; don't hand-edit.
 - `Source/Biquad.h`: double-precision RBJ filters.
+- `Source/DriveTypes.h`: the IRON / TAPE / DIODE / CLIP engines. `Source/TypeMap.h`: their Drive gain law, **generated** by `model/gen_typemap.py` (loudness-matched to TUBE).
 - `Source/PhaseCoherent.h`: the phase-locked filters (user EQ/HPF/shelves) and their all-pass twins.
 - `Source/ChannelStrip.h`: each path's EQ + compressor (with Mix).
 - `Source/PluginProcessor.*`, `Source/PluginEditor.*`: JUCE wrapper and UI.

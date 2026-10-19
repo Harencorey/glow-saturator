@@ -44,6 +44,7 @@ int main (int argc, char** argv)
         else if (key == "density") p.density = v;
         else if (key == "hpf")     p.hpfHz = v;
         else if (key == "hpf24")   p.hpfSlope = v > 0.5f ? 2 : 1;   // legacy key
+        else if (key == "type")    p.type = (int) v;                // 0 tube, 1 iron, 2 tape, 3 diode, 4 clip
         else if (key == "slope")   p.hpfSlope = (int) v;            // 0 = 6, 1 = 12, 2 = 24, 3 = 36 dB/oct
         else if (key == "keep")    p.keepLows = v > 0.5f;
         else if (key == "dryLevel") legacyDryDb = v;   // old keys: the Dry/Wet balance -> Mix (+ Output)

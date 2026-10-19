@@ -76,7 +76,7 @@ private:
     int abSel = 0;
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::None> bypassDelay { 4096 };
     void feedBypassDelay (juce::AudioBuffer<float>&, bool writeOutput);
-    std::atomic<float>* pDrive = nullptr;
+    std::atomic<float>* pDrive = nullptr, * pDriveType = nullptr;
     std::atomic<float>* pEven = nullptr;
     std::atomic<float>* pOdd = nullptr;
     std::atomic<float>* pDensity = nullptr;
