@@ -16,7 +16,7 @@ public:
     enum class Look { icon, text, wide };
     ModuleIcon (Kind k, Look l = Look::icon) : juce::Button (k == Kind::eq ? "EQ" : "COMP"), kind (k), look (l) {}
 
-    void mouseDown (const juce::MouseEvent& e) override { lampHit = look == Look::wide && e.x < 30; juce::Button::mouseDown (e); }
+    void mouseDown (const juce::MouseEvent& e) override { lampHit = inLamp (e); juce::Button::mouseDown (e); }
 
     // Single click opens/closes the panel; double-click ONLY switches the module on/off.
     // A click waits out the double-click window first, so a double-click never opens a panel.
@@ -25,7 +25,7 @@ public:
     {
         stopTimer();                 // cancel the pending single click
         swallowNextClick = true;     // the double-click's second mouse-up is not a click
-        if (look == Look::wide && e.x < 30) return;   // the lamp: its first click already switched it
+        if (inLamp (e)) return;   // the lamp: its first click already switched it
         if (onDoubleClick) onDoubleClick();
     }
 
@@ -72,6 +72,45 @@ public:
     }
 
 private:
+    // a tall 'wide' button is laid out as a tile: lamp top-left, open arrow top-right,
+    // a bigger curve in the middle and the name underneath
+    bool isTile() const { return look == Look::wide && getHeight() >= 56; }
+    bool inLamp (const juce::MouseEvent& e) const
+    {
+        return look == Look::wide && e.x < 30 && (! isTile() || e.y < 30);
+    }
+
+    void drawOpenArrow (juce::Graphics& g, juce::Rectangle<float> ob, bool over)
+    {
+        g.setColour (GlowLookAndFeel::text.withAlpha (over ? 0.95f : 0.7f));
+        juce::Path box;
+        box.startNewSubPath (ob.getX() + 6.0f, ob.getY());
+        box.lineTo (ob.getX(), ob.getY()); box.lineTo (ob.getX(), ob.getBottom()); box.lineTo (ob.getRight(), ob.getBottom()); box.lineTo (ob.getRight(), ob.getY() + 8.0f);
+        box.startNewSubPath (ob.getX() + 6.0f, ob.getY() + 8.0f); box.lineTo (ob.getRight(), ob.getY());
+        box.startNewSubPath (ob.getRight() - 5.0f, ob.getY()); box.lineTo (ob.getRight(), ob.getY()); box.lineTo (ob.getRight(), ob.getY() + 5.0f);
+        g.strokePath (box, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    juce::Path curveIn (juce::Rectangle<float> icon) const
+    {
+        juce::Path p;
+        if (kind == Kind::eq)
+            for (int i = 0; i <= 24; ++i)
+            {
+                const float t = (float) i / 24.0f;
+                const float y = std::exp (-std::pow ((t - 0.6f) * 4.0f, 2.0f)) - 0.35f * std::exp (-std::pow ((t - 0.2f) * 6.0f, 2.0f));
+                const juce::Point<float> pt (icon.getX() + t * icon.getWidth(), icon.getCentreY() - y * icon.getHeight() * 0.55f);
+                if (i == 0) p.startNewSubPath (pt); else p.lineTo (pt);
+            }
+        else
+        {
+            p.startNewSubPath (icon.getX(), icon.getBottom());
+            p.lineTo (icon.getX() + icon.getWidth() * 0.55f, icon.getY() + icon.getHeight() * 0.35f);
+            p.quadraticTo (icon.getX() + icon.getWidth() * 0.7f, icon.getY() + icon.getHeight() * 0.2f, icon.getRight(), icon.getY());
+        }
+        return p;
+    }
+
     void paintModern (juce::Graphics& g, bool over)
     {
         using L = GlowLookAndFeel;
@@ -86,6 +125,17 @@ private:
             g.setColour (txt);
             g.setFont (juce::FontOptions (juce::jmin (11.5f, r.getHeight() * 0.5f)).withKerningFactor (0.12f));
             g.drawText (getName(), r, juce::Justification::centred);
+            return;
+        }
+        if (isTile())
+        {
+            L::drawLamp (g, { r.getX() + 14.0f, r.getY() + 14.0f }, 4.0f, on);
+            drawOpenArrow (g, { r.getRight() - 24.0f, r.getY() + 8.0f, 13.0f, 13.0f }, over);
+            const auto icon = juce::Rectangle<float> (r.getCentreX() - 22.0f, r.getY() + 24.0f, 44.0f, 20.0f);
+            g.setColour (txt);
+            g.strokePath (curveIn (icon), juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.setFont (juce::FontOptions (12.0f).withKerningFactor (0.18f));
+            g.drawText (getName(), r.withTrimmedTop (r.getHeight() - 24.0f).withTrimmedBottom (6.0f), juce::Justification::centred);
             return;
         }
         // wide: lamp | little curve | name | open-arrow

@@ -354,7 +354,7 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     hpf.setup (body, s, "hpf", "HPF", GlowDSP::kHpfOffHz, 11.0f);
     hpf.slider.setTextBoxStyle (Slider::TextBoxBelow, false, 70, 14);
     hpf.tip ("HIGH-PASS: cuts lows before the tubes so they don't muddy the saturation. Bottom = Off, then 20 Hz to 1 kHz. "
-             "Expand INPUT for the slope, Keep Lows and the pre-saturation EQ.");
+             "Expand (top right) for the pre-saturation EQ.");
     hpfP = s.getRawParameterValue ("hpf");
     body.addAndMakeVisible (inputExpand);
     inputExpand.setTooltip ("Show / hide the pre-saturation EQ (the window gets wider)");
@@ -772,6 +772,10 @@ void GlowEditor::paintBody (Graphics& g)
     {
         title ("HPF", leftCard.getX() + 20, leftCard.getY() + 22, (lamps & 1) != 0);
         rangeLabels (hpf, "20 Hz", "1 kHz");
+        const auto sl = slope12.getBounds().getUnion (slope24.getBounds());
+        g.setColour (L::textDim);
+        g.setFont (FontOptions (10.0f).withKerningFactor (0.2f));
+        g.drawText ("SLOPE  dB/OCT", sl.getX(), sl.getY() - 18, sl.getWidth(), 14, Justification::centred);
     }
 
     // ---- centre: saturation
@@ -941,8 +945,7 @@ void GlowEditor::applyLayout()
     auto labelAt = [] (Point<int> c, int w = 110, int h = 14) { return Rectangle<int> (c.x - w / 2, c.y - h / 2, w, h); };
 
     // ---- INPUT
-    for (Component* c : { (Component*) &keepLows.button, (Component*) &slope12, (Component*) &slope24, (Component*) &preEqLink.button,
-                          (Component*) &preEqLamp, (Component*) &preCurve, (Component*) &preFreq.slider, (Component*) &preFreq.label,
+    for (Component* c : { (Component*) &preEqLink.button, (Component*) &preEqLamp, (Component*) &preCurve, (Component*) &preFreq.slider, (Component*) &preFreq.label,
                           (Component*) &preQ.slider, (Component*) &preQ.label })
         c->setVisible (inputOpen);
     inputExpand.expanded = inputOpen;
@@ -964,7 +967,11 @@ void GlowEditor::applyLayout()
     {
         const auto L = leftCard;
         inputExpand.setBounds (L.getRight() - 40, L.getY() + 12, 26, 24);
-        knobAt (hpf, rel (L, L.getWidth() / 2, 158), 128, 16, labelAt ({ 0, -100 }));   // the card's title names it
+        knobAt (hpf, rel (L, L.getWidth() / 2, 132), 132, 16, labelAt ({ 0, -100 }));   // the card's title names it
+        // Keep Lows and the slope on the front: Keep Lows left, 12 | 24 right
+        keepLows.button.setBounds (L.getX() + 26, L.getY() + 256, 136, 30);
+        slope12.setBounds (L.getRight() - 26 - 134, L.getY() + 259, 64, 24);
+        slope24.setBounds (L.getRight() - 26 - 64, L.getY() + 259, 64, 24);
     }
     hpf.label.setVisible (inputOpen);
 
@@ -987,18 +994,20 @@ void GlowEditor::applyLayout()
     {
         const auto M = mixCard;
         const int cx = M.getWidth() / 2;
-        knobAt (mix, rel (M, cx, 160), 124, 0, labelAt ({ 0, -100 }));
+        // square-ish module tiles either side of the knob
+        constexpr int tileW = 92, tileH = 74, y1 = 98, y2 = 202;
+        knobAt (mix, rel (M, cx, (y1 + y2 + tileH) / 2), 112, 0, labelAt ({ 0, -100 }));
         mix.label.setVisible (false);
         auto column = [&] (PathMods& pm, int x)
         {
             const bool cf = pm.compFirst->load() > 0.5f;
             pm.shownCompFirst = cf;
-            (cf ? pm.comp : pm.eq).setBounds (M.getX() + x, M.getY() + 118, 132, 36);
-            (cf ? pm.eq : pm.comp).setBounds (M.getX() + x, M.getY() + 180, 132, 36);
-            pm.swap.setBounds (M.getX() + x + 57, M.getY() + 156, 18, 22);
+            (cf ? pm.comp : pm.eq).setBounds (M.getX() + x, M.getY() + y1, tileW, tileH);
+            (cf ? pm.eq : pm.comp).setBounds (M.getX() + x, M.getY() + y2, tileW, tileH);
+            pm.swap.setBounds (M.getX() + x + tileW / 2 - 9, M.getY() + y1 + tileH + 4, 18, y2 - y1 - tileH - 8);
         };
         column (dryMods, 16);
-        column (wetMods, M.getWidth() - 16 - 132);
+        column (wetMods, M.getWidth() - 16 - tileW);
     }
 
     // ---- bottom strip (right): INPUT knob | OUTPUT knob, AUTO

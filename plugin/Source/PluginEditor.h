@@ -80,7 +80,7 @@ private:
     float uiScale = 0.9f;
     // design-unit geometry (scaled by uiScale): one height for every view, sections add width
     static constexpr int kMargin = 14, kGap = 12, kTop = 54, kCardH = 312, kMainH = 446,
-                         kInputW = 240, kInputOpenW = 548, kCentreW = 440, kMixW = 452;
+                         kInputW = 350, kInputOpenW = 548, kCentreW = 440, kMixW = 350;   // HPF and MIX cards match
 
     // INPUT
     Knob hpf;
