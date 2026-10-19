@@ -79,9 +79,9 @@ private:
     bool inputOpen = false;
     float uiScale = 0.9f;
     // design-unit geometry (scaled by uiScale): one height for every view, sections add width
-    static constexpr int kMargin = 14, kGap = 12, kTop = 54, kCardH = 340, kMainH = 474,
+    static constexpr int kMargin = 14, kGap = 12, kTop = 54, kCardH = 306, kMainH = 440,
                          kInputW = 380, kInputOpenW = 548, kCentreW = 440, kMixW = 380;
-    static constexpr int kLine = 214;   // HPF, Drive and Mix knobs share this centre line (card-relative)   // HPF and MIX cards match
+    static constexpr int kLine = 188;   // HPF, Drive and Mix knobs share this line: the middle of each card below its title
 
     // INPUT
     Knob hpf;

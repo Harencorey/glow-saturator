@@ -978,7 +978,7 @@ void GlowEditor::applyLayout()
         const auto L = leftCard;
         inputExpand.setBounds (L.getRight() - 40, L.getY() + 12, 26, 24);
         // Keep Lows square | HPF knob | 2x2 slope squares, all on the knob line
-        knobAt (hpf, rel (L, L.getWidth() / 2, kLine), 132, 16, labelAt ({ 0, -100 }));
+        knobAt (hpf, rel (L, L.getWidth() / 2, kLine + 6), 130, 16, labelAt ({ 0, -100 }));
         constexpr int sq = 84, cell = 39;
         keepLows.button.setBounds (L.getX() + 22, L.getY() + kLine - sq / 2, sq, sq);
         const int qx = L.getRight() - 22 - sq, qy = L.getY() + kLine - sq / 2;
@@ -995,13 +995,15 @@ void GlowEditor::applyLayout()
     {
         const auto C = centreCard;
         const int cx = C.getWidth() / 2;
-        tubeWindow = { C.getX() + cx - 160, C.getY() + 14, 320, 32 };
-        knobAt (even, rel (C, cx - 120, 80), 76, 0, labelAt (rel (C, cx - 120, 118)));
-        knobAt (density, rel (C, cx, 80), 76, 0, labelAt (rel (C, cx, 118)));
-        knobAt (odd, rel (C, cx + 120, 80), 76, 0, labelAt (rel (C, cx + 120, 118)));
-        knobAt (drive, rel (C, cx, kLine), 172, 0, labelAt (rel (C, cx, kLine + 92), 80, 18));   // ~15 % bigger than HPF / Mix
-        knobAt (envAmount, rel (C, cx - 160, kLine), 84, 0, labelAt (rel (C, cx - 160, kLine + 41)));
-        knobAt (envSpeed, rel (C, cx + 160, kLine), 84, 0, labelAt (rel (C, cx + 160, kLine + 41)));
+        tubeWindow = { C.getX() + cx - 160, C.getY() + 12, 320, 28 };
+        // Drive in the middle; Density small above it; Even / Odd on the upper flanks, the
+        // envelope pair on the lower flanks
+        knobAt (density, rel (C, cx, 68), 60, 0, labelAt (rel (C, cx, 103)));
+        knobAt (even, rel (C, cx - 152, 112), 86, 0, labelAt (rel (C, cx - 152, 162)));
+        knobAt (odd, rel (C, cx + 152, 112), 86, 0, labelAt (rel (C, cx + 152, 162)));
+        knobAt (drive, rel (C, cx, kLine), 164, 0, labelAt (rel (C, cx, kLine + 90), 80, 18));   // ~8 % bigger than HPF / Mix
+        knobAt (envAmount, rel (C, cx - 152, 238), 76, 0, labelAt (rel (C, cx - 152, 280)));
+        knobAt (envSpeed, rel (C, cx + 152, 238), 76, 0, labelAt (rel (C, cx + 152, 280)));
         glowArea = drive.slider.getBounds().expanded (8);
         modDot.setBounds (drive.slider.getBounds());
     }
@@ -1012,7 +1014,7 @@ void GlowEditor::applyLayout()
         const int cx = M.getWidth() / 2;
         // square-ish module tiles either side of the knob
         constexpr int tileW = 96, tileH = 78, y1 = kLine - tileH - 15, y2 = kLine + 15;
-        knobAt (mix, rel (M, cx, kLine), 130, 0, labelAt ({ 0, -100 }));
+        knobAt (mix, rel (M, cx, kLine), 122, 0, labelAt ({ 0, -100 }));
         mix.label.setVisible (false);
         auto column = [&] (PathMods& pm, int x)
         {
