@@ -185,6 +185,30 @@ int main()
             check (std::abs (t->apvts.getRawParameterValue ("mix")->load() - 100.0f) < 1e-3f
                    && std::abs (t->apvts.getRawParameterValue ("output")->load()) < 1e-4f, "old default session: Mix 100 %, Output 0 dB");
         }
+        {   // the old 12/24 slope switch "hpfSlope" -> the 4-way slope (6/12/24/36): 12 stays 12, 24 stays 24
+            auto withOldSlope = [&] (double oldValue)
+            {
+                return oldSession ([&] (juce::XmlElement& x)
+                {
+                    juce::Array<juce::XmlElement*> drop;
+                    for (auto* e : x.getChildWithTagNameIterator ("PARAM")) if (e->getStringAttribute ("id") == "hpfSlopeSel") drop.add (e);
+                    for (auto* e : drop) x.removeChildElement (e, true);
+                    addParam (x, "hpfSlope", oldValue);
+                });
+            };
+            auto t12 = withOldSlope (0.0), t24 = withOldSlope (1.0);
+            check (std::lround (t12->apvts.getRawParameterValue ("hpfSlopeSel")->load()) == 1
+                   && std::lround (t24->apvts.getRawParameterValue ("hpfSlopeSel")->load()) == 2,
+                   "old session HPF slope 12 / 24 dB loads as 12 / 24 dB");
+            GlowProcessor fresh;
+            check (std::lround (fresh.apvts.getRawParameterValue ("hpfSlopeSel")->load()) == 2, "new instance: HPF slope 24 dB/oct");
+            auto* sp = fresh.apvts.getParameter ("hpfSlopeSel");
+            check (sp->getText (sp->convertTo0to1 (0.0f), 20) == "6 dB/oct" && sp->getText (sp->convertTo0to1 (3.0f), 20) == "36 dB/oct",
+                   "HPF slope offers 6 / 12 / 24 / 36 dB/oct");
+            auto* op = fresh.apvts.getParameter ("output");
+            check (std::abs (op->getValue() - 0.5f) < 1e-6f && std::abs (op->convertFrom0to1 (1.0f) - 24.0f) < 1e-4f,
+                   "Output: -24..+24 dB, 0 dB at the middle (knob straight up)");
+        }
     }
 
     // ---- Drive glow meter ----

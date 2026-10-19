@@ -304,23 +304,6 @@ void GlowEditor::IconButton::paintButton (Graphics& g, bool over, bool)
 }
 
 //==============================================================================
-void GlowEditor::ChevronButton::paintButton (Graphics& g, bool over, bool)
-{
-    auto r = getLocalBounds().toFloat().reduced (0.5f);
-    g.setColour (GlowLookAndFeel::well.brighter (over ? 0.15f : 0.0f));
-    g.fillRoundedRectangle (r, 4.0f);
-    g.setColour (GlowLookAndFeel::edge.brighter (over ? 0.4f : 0.2f));
-    g.drawRoundedRectangle (r, 4.0f, 1.0f);
-    const auto c = r.getCentre();
-    const float w = r.getWidth() * 0.22f, h = r.getHeight() * 0.13f, d = expanded ? -1.0f : 1.0f;
-    Path p;
-    p.startNewSubPath (c.x - w, c.y - d * h);
-    p.lineTo (c.x, c.y + d * h);
-    p.lineTo (c.x + w, c.y - d * h);
-    g.setColour (GlowLookAndFeel::text.withAlpha (over ? 1.0f : 0.8f));
-    g.strokePath (p, PathStrokeType (1.5f, PathStrokeType::curved, PathStrokeType::rounded));
-}
-
 void GlowEditor::LampButton::paintButton (Graphics& g, bool over, bool)
 {
     const auto c = getLocalBounds().toFloat().getCentre();
@@ -364,62 +347,56 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     hpf.setup (body, s, "hpf", "HPF", GlowDSP::kHpfOffHz, 11.0f);
     hpf.slider.setTextBoxStyle (Slider::TextBoxBelow, false, 70, 14);
     hpf.tip ("HIGH-PASS: cuts lows before the tubes so they don't muddy the saturation. Bottom = Off, then 20 Hz to 1 kHz. "
-             "Expand (top right) for the pre-saturation EQ.");
+             "The curve above shows it, with the pre-saturation EQ.");
     hpfP = s.getRawParameterValue ("hpf");
-    body.addAndMakeVisible (inputExpand);
-    inputExpand.setTooltip ("Show / hide the pre-saturation EQ (the window gets wider)");
-    inputExpand.onClick = [this] { setExpanded (! inputOpen); };
     keepLows.setup (body, s, "keepLows", "KEEP LOWS");
     keepLows.button.getProperties().set ("lamp", true);
+    keepLows.button.getProperties().set ("tile", true);   // square: lamp on top, words stacked
     keepLows.button.setTooltip ("KEEP LOWS: everything the high-pass removes skips the tubes and comes back clean, so the low "
                                 "end stays full and solid while only what's above it saturates. Off = a plain cut.");
-    for (int i = 0; i < 4; ++i)
     {
-        typeBtn[i].setClickingTogglesState (true);
-        typeBtn[i].setRadioGroupId (771);
-        typeBtn[i].setTooltip ("Drive type (mockup)");
-        body.addAndMakeVisible (typeBtn[i]);
-    }
-    typeBtn[0].setToggleState (true, dontSendNotification);
-    for (auto* b : { &slope6, &slope12, &slope24, &slope48 })
-    {
-        b->setClickingTogglesState (false);
-        b->setTooltip ("High-pass slope: 12 dB/oct (gentle) or 24 dB/oct (steep)");
-        body.addAndMakeVisible (b);
-    }
-    if (auto* sp = s.getParameter ("hpfSlope"))
-    {
-        slopeAttach = std::make_unique<ParameterAttachment> (*sp, [this] (float v)
+        TextButton* sb[] { &slope6, &slope12, &slope24, &slope36 };
+        const char* tips[] { "6 dB/oct: the gentlest, a broad tilt out of the lows",
+                             "12 dB/oct: gentle",
+                             "24 dB/oct: steep (the default)",
+                             "36 dB/oct: very steep, a wall under the corner" };
+        for (int i = 0; i < 4; ++i)
         {
-            slope24.setToggleState (v > 0.5f, dontSendNotification);
-            slope12.setToggleState (v <= 0.5f, dontSendNotification);
-        });
-        slopeAttach->sendInitialUpdate();
-        slope12.onClick = [this] { slopeAttach->setValueAsCompleteGesture (0.0f); };
-        slope24.onClick = [this] { slopeAttach->setValueAsCompleteGesture (1.0f); };
+            sb[i]->setClickingTogglesState (false);
+            sb[i]->setTooltip (String ("High-pass slope, ") + tips[i]);
+            body.addAndMakeVisible (sb[i]);
+        }
+        if (auto* sp = s.getParameter ("hpfSlopeSel"))
+        {
+            slopeAttach = std::make_unique<ParameterAttachment> (*sp, [this] (float v)
+            {
+                const int k = (int) std::lround (v);
+                TextButton* b[] { &slope6, &slope12, &slope24, &slope36 };
+                for (int i = 0; i < 4; ++i) b[i]->setToggleState (i == k, dontSendNotification);
+            });
+            slopeAttach->sendInitialUpdate();
+            for (int i = 0; i < 4; ++i)
+                sb[i]->onClick = [this, i] { slopeAttach->setValueAsCompleteGesture ((float) i); };
+        }
     }
-    preEqLink.setup (body, s, "preEqLink", "LINK");
+    preEqLink.setup (body, s, "preEqLink", "MIRROR");
     preEqLink.button.getProperties().set ("lamp", true);
-    preEqLink.button.setTooltip ("LINK: the exact opposite of this EQ runs after the tubes (dashed curve). You change what "
-                                 "saturates - push the mids into the tubes, say - while the overall tone stays the same.");
+    preEqLink.button.setTooltip ("MIRROR: the exact opposite of this EQ runs after the tubes (dashed curve). You change what "
+                                 "saturates - push the mids into the tubes, say - while the overall tone stays the same "
+                                 "(like tape pre-/de-emphasis).");
     body.addAndMakeVisible (preEqLamp);
     preEqLampAttach = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment> (s, "preEqOn", preEqLamp);
     preEqLamp.setTooltip ("Pre-saturation EQ on/off (dragging a point switches it on)");
     preCurve.names = { "M", "H" };
     preCurve.fixedHighShelf = true;
     preCurve.axisOutside = true;
-    preCurve.attachHpf (s.getParameter ("hpf"), s.getRawParameterValue ("hpfSlope"), s.getRawParameterValue ("keepLows"),
+    preCurve.attachHpf (s.getParameter ("hpf"), s.getRawParameterValue ("hpfSlopeSel"), s.getRawParameterValue ("keepLows"),
                         s.getRawParameterValue ("preEqLink"));
     preCurve.onSolo = [this] (int band) { proc.setEqSolo (3, band); };
     preCurve.setTooltip ("What goes into the tubes. M = mid bell, H = high shelf, HP = the high-pass. Drag a point: frequency + gain. "
                          "Cmd-drag: Q. Option-drag: frequency only. Hold Shift: solo the band. Double-click: bypass the band "
                          "(the HP point: Off). Option-double-click: gain to 0 dB.");
     body.addAndMakeVisible (preCurve);
-    preFreq.setup (body, s, "preEqFreq2", "MID FREQ", 1000.0, 11.0f);
-    preQ.setup (body, s, "preEqQ2", "MID Q", 0.7, 11.0f);
-    for (auto* k : { &preFreq, &preQ }) k->slider.setTextBoxStyle (Slider::TextBoxBelow, false, 70, 14);
-    preFreq.tip ("Pre-saturation EQ: frequency of the mid bell (the M point)");
-    preQ.tip ("Pre-saturation EQ: width of the mid bell (higher = narrower)");
 
     // ---- MIX & MASTER
     mix.setup (body, s, "mix", "MIX", 100.0, 11.0f);
@@ -468,7 +445,7 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     body.addAndMakeVisible (redoButton);
 
     // knob names: regular weight, letter-spaced
-    for (auto* k : { &hpf, &even, &odd, &density, &envAmount, &envSpeed, &mix, &input, &output, &preFreq, &preQ })
+    for (auto* k : { &hpf, &even, &odd, &density, &envAmount, &envSpeed, &mix, &input, &output })
     {
         k->label.setFont (FontOptions (k == &input || k == &output ? 10.5f : 11.5f).withKerningFactor (0.16f));
         k->label.setColour (Label::textColourId, GlowLookAndFeel::text.withAlpha (0.88f));
@@ -485,7 +462,6 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     body.addAndMakeVisible (modDot);
 
     sendLookAndFeelChange(); // re-skin value boxes created before the knobs were parented
-    inputOpen = proc.uiInputOpen;
     uiScale = proc.uiScale;
     applyLayout();
     startTimerHz (30);
@@ -571,12 +547,6 @@ void GlowEditor::closePanel()
     }
 }
 
-void GlowEditor::setExpanded (bool in)
-{
-    inputOpen = proc.uiInputOpen = in;
-    applyLayout();
-}
-
 void GlowEditor::showSizeMenu()
 {
     PopupMenu m;
@@ -597,9 +567,9 @@ void GlowEditor::showSizeMenu()
 void GlowEditor::timerCallback()
 {
     // the host restored a session with a different view
-    if (proc.uiInputOpen != inputOpen || std::abs (proc.uiScale - uiScale) > 0.001f)
+    if (std::abs (proc.uiScale - uiScale) > 0.001f)
     {
-        inputOpen = proc.uiInputOpen; uiScale = proc.uiScale;
+        uiScale = proc.uiScale;
         applyLayout();
     }
     {   // auto gain: what it's applying shows on the AUTO button's tooltip
@@ -692,7 +662,7 @@ void GlowEditor::paint (Graphics& g)
 juce::Rectangle<int> GlowEditor::designSize() const
 {
     // one height in every view (more room than before); expanding a section only adds width
-    const int w = kMargin + (inputOpen ? kInputOpenW : kInputW) + kGap + kCentreW + kGap + kMixW + kMargin;
+    const int w = kMargin + kInputW + kGap + kCentreW + kGap + kMixW + kMargin;
     const int h = kMainH + (panel != nullptr ? drawerH() : 0);
     return { 0, 0, w, h };
 }
@@ -761,38 +731,13 @@ void GlowEditor::paintBody (Graphics& g)
 
     // ---- left: HPF card or the full pre-saturation EQ
     card (leftCard);
-    if (inputOpen)
     {
-        // title lamp is the ON button (a component)
-        g.setColour (L::text.withAlpha (0.9f));
-        g.setFont (FontOptions (12.5f).withKerningFactor (0.3f));
-        g.drawText ("PRE-SAT EQ", leftCard.getX() + 30, leftCard.getY() + 9, 160, 16, Justification::centredLeft);
-        // EQ axes outside the plot
-        const auto r = preCurve.getBounds().toFloat();
-        g.setFont (FontOptions (10.0f));
-        g.setColour (L::textDim);
-        for (float db : { 12.0f, 6.0f, 0.0f, -6.0f, -12.0f })
-        {
-            const float y = r.getCentreY() - r.getHeight() * 0.5f * (db / 20.0f) * 0.9f;
-            g.drawText ((db > 0.0f ? "+" : "") + String ((int) db), Rectangle<float> (r.getX() - 30.0f, y - 6.0f, 25.0f, 12.0f), Justification::centredRight);
-        }
-        for (double f : { 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 20000.0 })
-        {
-            const float x = r.getX() + r.getWidth() * (float) (std::log (f / 20.0) / std::log (1000.0));
-            g.drawText (f >= 1000.0 ? String ((int) (f / 1000.0)) + "k" : String ((int) f),
-                        Rectangle<float> (x - 16.0f, r.getBottom() + 5.0f, 32.0f, 12.0f), Justification::centred);
-        }
-        rangeLabels (hpf, "20 Hz", "1 kHz");
-        rangeLabels (preFreq, "40 Hz", "12 kHz");
-        rangeLabels (preQ, "0.1", "10");
-    }
-    else
-    {
+        // title lamp is the pre-EQ ON button (a component)
         g.setColour (L::text.withAlpha (0.9f));
         g.setFont (FontOptions (12.5f).withKerningFactor (0.3f));
         g.drawText ("PRE-SAT EQ", leftCard.getX() + 30, leftCard.getY() + 9, 160, 16, Justification::centredLeft);
         rangeLabels (hpf, "20 Hz", "1 kHz");
-        const auto sl = slope6.getBounds().getUnion (slope48.getBounds());
+        const auto sl = slope6.getBounds().getUnion (slope36.getBounds());
         g.setColour (L::textDim);
         g.setFont (FontOptions (10.0f).withKerningFactor (0.2f));
         g.drawText ("dB/OCT", sl.getX() - 10, sl.getBottom() + 6, sl.getWidth() + 20, 14, Justification::centred);
@@ -862,12 +807,6 @@ void GlowEditor::paintBody (Graphics& g)
         const float S = jmin (b.getWidth(), b.getHeight());
         small ("0%", b.getCentreX() - S * 0.40f, b.getCentreY() + S * 0.42f);
         small ("100%", b.getCentreX() + S * 0.40f, b.getCentreY() + S * 0.42f);
-    }
-    {   // MOCKUP: drive TYPE group label
-        const auto tb = typeBtn[0].getBounds();
-        g.setColour (L::textDim);
-        g.setFont (FontOptions (11.0f).withKerningFactor (0.3f));
-        g.drawText ("TYPE", tb.getX() - 52, tb.getY(), 44, tb.getHeight(), Justification::centredRight);
     }
     // ---- bottom strip: INPUT | OUTPUT  AUTO
     g.setColour (Colour (0xff2a2622));
@@ -958,7 +897,7 @@ void GlowEditor::applyLayout()
     undoButton.setBounds (hx + 532, 10, 30, 28);
     redoButton.setBounds (hx + 568, 10, 30, 28);
 
-    leftCard = { kMargin, top, inputOpen ? kInputOpenW : kInputW, kCardH };
+    leftCard = { kMargin, top, kInputW, kCardH };
     centreCard = { leftCard.getRight() + kGap, top, kCentreW, kCardH };
     mixCard = { centreCard.getRight() + kGap, top, kMixW, kCardH };
 
@@ -970,47 +909,23 @@ void GlowEditor::applyLayout()
     auto rel = [] (Rectangle<int> card, int dx, int dy) { return Point<int> (card.getX() + dx, card.getY() + dy); };
     auto labelAt = [] (Point<int> c, int w = 110, int h = 14) { return Rectangle<int> (c.x - w / 2, c.y - h / 2, w, h); };
 
-    // ---- INPUT
-    for (Component* c : { (Component*) &preEqLink.button, (Component*) &preEqLamp, (Component*) &preCurve, (Component*) &preFreq.slider, (Component*) &preFreq.label,
-                          (Component*) &preQ.slider, (Component*) &preQ.label })
-        c->setVisible (inputOpen);
-    for (Component* c : { (Component*) &preEqLink.button, (Component*) &preEqLamp, (Component*) &preCurve })
-        c->setVisible (true);   // MOCKUP: the small curve is the EQ in the compact view
-    inputExpand.setVisible (false);
-    inputExpand.expanded = inputOpen;
-    if (inputOpen)
+    // ---- PRE-SAT EQ card: the small curve is the whole pre-saturation EQ; under it
+    // Keep Lows square | HPF knob | 2x2 slope squares, on the shared knob line
     {
         const auto L = leftCard;
         preEqLamp.setBounds (L.getX() + 10, L.getY() + 9, 20, 20);
-        inputExpand.setBounds (L.getRight() - 38, L.getY() + 8, 26, 24);
-        preEqLink.button.setBounds (L.getRight() - 112, L.getY() + 8, 64, 24);
-        preCurve.setBounds (L.getX() + 46, L.getY() + 44, L.getWidth() - 68, 132);
-        knobAt (hpf, rel (L, 86, 252), 84, 14, labelAt (rel (L, 86, 205)));
-        keepLows.button.setBounds (L.getX() + 162, L.getY() + 224, 124, 28);
-        slope12.setBounds (L.getX() + 162, L.getY() + 262, 59, 24);
-        slope24.setBounds (L.getX() + 227, L.getY() + 262, 59, 24);
-        knobAt (preFreq, rel (L, 370, 252), 84, 14, labelAt (rel (L, 370, 205)));
-        knobAt (preQ, rel (L, 476, 252), 84, 14, labelAt (rel (L, 476, 205)));
-    }
-    else
-    {
-        const auto L = leftCard;
-        preEqLamp.setBounds (L.getX() + 10, L.getY() + 9, 20, 20);
-        preEqLink.button.setBounds (L.getRight() - 78, L.getY() + 8, 64, 24);
+        preEqLink.button.setBounds (L.getRight() - 86, L.getY() + 8, 72, 24);
         preCurve.setBounds (L.getX() + 22, L.getY() + 42, L.getWidth() - 44, 78);
-        // Keep Lows square | HPF knob | 2x2 slope squares, all on the knob line
         knobAt (hpf, rel (L, L.getWidth() / 2, kLine + 6), 130, 16, labelAt ({ 0, -100 }));
+        hpf.label.setVisible (false);   // the range labels and the curve say what it is
         constexpr int sq = 84, cell = 39;
         keepLows.button.setBounds (L.getX() + 22, L.getY() + kLine - sq / 2, sq, sq);
         const int qx = L.getRight() - 22 - sq, qy = L.getY() + kLine - sq / 2;
         slope6.setBounds (qx, qy, cell, cell);
         slope12.setBounds (qx + sq - cell, qy, cell, cell);
         slope24.setBounds (qx, qy + sq - cell, cell, cell);
-        slope48.setBounds (qx + sq - cell, qy + sq - cell, cell, cell);
+        slope36.setBounds (qx + sq - cell, qy + sq - cell, cell, cell);
     }
-    hpf.label.setVisible (inputOpen);
-    keepLows.button.getProperties().set ("tile", ! inputOpen);
-    slope6.setVisible (! inputOpen); slope48.setVisible (! inputOpen);
 
     // ---- SATURATION (identical in every view)
     {
@@ -1056,11 +971,7 @@ void GlowEditor::applyLayout()
         knobAt (input, { R - 240, cy - 4 }, 44, 13, { R - 316, cy - 11, 48, 14 });
         knobAt (output, { R - 156, cy - 4 }, 44, 13, { R - 130, cy - 11, 56, 14 });
         autoGain.button.setBounds (R - 70, cy - 14, 74, 28);
-        const int mx = leftCard.getX() + 30, mw = 350;
-        // MOCKUP: drive TYPE, centred under the Drive knob
-        const int tw = 66, tg = 4, tx0 = centreCard.getCentreX() - (4 * tw + 3 * tg) / 2 + 22;
-        for (int i = 0; i < 4; ++i)
-            typeBtn[i].setBounds (tx0 + i * (tw + tg), cy - 14, tw, 28);
+        const int mx = leftCard.getX() + 30, mw = jmin (470, bottomArea.getX() - 40 - mx);
         inMeter.setBounds (mx, cy - 24, mw, 12);
         outMeter.setBounds (mx, cy - 4, mw, 25);
     }

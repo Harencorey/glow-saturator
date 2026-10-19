@@ -443,8 +443,17 @@ public:
     double hpfDb (double f) const
     {
         if (! hpfOn()) return 0.0;
-        const auto k = slopeP != nullptr && slopeP->load() < 0.5f ? Coherent::Kind::highPass12 : Coherent::Kind::highPass;
-        return Coherent::Stage::responseDb (k, hpfHz(), 0.0, 0.70710678, f, 48000.0);
+        // slope: 0 = 6, 1 = 12, 2 = 24, 3 = 36 dB/oct (two stages in series)
+        using K = Coherent::Kind;
+        const int sl = slopeP != nullptr ? juce::jlimit (0, 3, (int) std::lround (slopeP->load())) : 2;
+        auto db = [&] (K k) { return Coherent::Stage::responseDb (k, hpfHz(), 0.0, 0.70710678, f, 48000.0); };
+        switch (sl)
+        {
+            case 0:  return db (K::highPass6);
+            case 1:  return db (K::highPass12);
+            case 3:  return db (K::highPass36a) + db (K::highPass36b);
+            default: return db (K::highPass);
+        }
     }
 
     void refresh()

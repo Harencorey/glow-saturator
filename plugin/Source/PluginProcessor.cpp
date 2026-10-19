@@ -12,7 +12,7 @@ GlowProcessor::GlowProcessor()
     pOdd = apvts.getRawParameterValue ("odd");
     pDensity = apvts.getRawParameterValue ("density");
     pHpf = apvts.getRawParameterValue ("hpf");
-    pHpf24 = apvts.getRawParameterValue ("hpfSlope");
+    pHpfSlope = apvts.getRawParameterValue ("hpfSlopeSel");
     pKeepLows = apvts.getRawParameterValue ("keepLows");
     pOutput = apvts.getRawParameterValue ("output");
     pAuto = apvts.getRawParameterValue ("autoGain");
@@ -122,10 +122,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
             });
         addFloat (l, "hpf", "HPF", r, GlowDSP::kHpfOffHz, hpfText);
     }
-    // HPF slope (24 dB/oct Linkwitz-Riley, or a gentler 12 dB/oct) and Keep lows (what it removes
-    // skips the tubes and comes back clean)
-    l.add (std::make_unique<AudioParameterBool> (ParameterID { "hpfSlope", 1 }, "HPF 24 dB", true,
-               AudioParameterBoolAttributes().withStringFromValueFunction ([] (bool v, int) { return v ? String ("24 dB/oct") : String ("12 dB/oct"); })));
+    // HPF slope (6, 12, 24 or 36 dB/oct) and Keep lows (what it removes skips the tubes and comes
+    // back clean). Replaces the old 12/24 switch "hpfSlope" (converted on load).
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "hpfSlopeSel", 1 }, "HPF Slope",
+               StringArray { "6 dB/oct", "12 dB/oct", "24 dB/oct", "36 dB/oct" }, 2));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "keepLows", 1 }, "Keep Lows", true));   // on for new instances
     // output
     addFloat (l, "output", "Output", { -24.0f, 24.0f, 0.01f }, 0.0f, db);
@@ -144,7 +144,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
 
     // pre-saturation EQ: mid bell + high shelf (the HPF covers the bottom), + Link
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqOn", 1 }, "Pre EQ On", false));
-    l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqLink", 1 }, "Pre EQ Link", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqLink", 1 }, "Pre EQ Mirror", false));   // the UI's MIRROR
     addFloat (l, "preEqFreq2", "Pre EQ Mid Freq", freqRange (40.0f, 12000.0f, 1000.0f), 1000.0f, hz);
     addFloat (l, "preEqGain2", "Pre EQ Mid Gain", { -15.0f, 15.0f, 0.01f }, 0.0f, db);
     {
@@ -268,7 +268,7 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
     p.odd = pOdd->load();
     p.density = pDensity->load();
     p.hpfHz = pHpf->load();
-    p.hpf24 = pHpf24->load() > 0.5f;
+    p.hpfSlope = juce::jlimit (0, 3, (int) std::lround (pHpfSlope->load()));
     p.keepLows = pKeepLows->load() > 0.5f;
     // Link: post shelf mirrors the pre shelf (same frequency, opposite gain), so the
     // highs hit the tubes harder/softer but the overall tonal balance stays put
@@ -312,7 +312,6 @@ void GlowProcessor::getStateInformation (juce::MemoryBlock& dest)
 {
     if (auto xml = apvts.copyState().createXml())
     {
-        xml->setAttribute ("uiInput", uiInputOpen ? 1 : 0);
         xml->setAttribute ("uiScale", (double) uiScale);
         copyXmlToBinary (*xml, dest);
     }
@@ -323,7 +322,6 @@ void GlowProcessor::setStateInformation (const void* data, int size)
     if (auto xml = getXmlFromBinary (data, size))
         if (xml->hasTagName (apvts.state.getType()))
         {
-            uiInputOpen = xml->getIntAttribute ("uiInput", 0) != 0;
             uiScale = (float) juce::jlimit (0.7, 1.5, xml->getDoubleAttribute ("uiScale", 0.9));
             xml->removeAttribute ("uiInput"); xml->removeAttribute ("uiMixer"); xml->removeAttribute ("uiScale");
             auto tree = juce::ValueTree::fromXml (*xml);
@@ -368,6 +366,12 @@ void GlowProcessor::upgradeLegacyValues (std::map<juce::String, float>& v)
         const bool gone = id == "dryLevel" || id == "wetLevel" || id.endsWith ("Mute") || id.endsWith ("Solo") || id.startsWith ("master");
         it = gone ? v.erase (it) : std::next (it);
     }
+    // the old 12/24 slope switch -> the 4-way slope (12 -> index 1, 24 -> index 2)
+    if (auto it = v.find ("hpfSlope"); it != v.end())
+    {
+        if (v.find ("hpfSlopeSel") == v.end()) v["hpfSlopeSel"] = it->second > 0.5f ? 2.0f : 1.0f;
+        v.erase (it);
+    }
     if (! hasFaders && hasMix) return;   // saved by this version: nothing else to do
 
     // Keep Lows used to default to off (only versions without the Mix knob)
@@ -384,7 +388,7 @@ void GlowProcessor::upgradeLegacyValues (std::map<juce::String, float>& v)
     GlowDSP::legacyMix (d, w, mix, gainDb);
     v["mix"] = mix;
     if (get ("autoGain", 0.0f) < 0.5f && std::abs (gainDb) > 1.0e-4f)
-        v["output"] = juce::jlimit (-24.0f, 12.0f, get ("output", 0.0f) + gainDb);
+        v["output"] = juce::jlimit (-24.0f, 24.0f, get ("output", 0.0f) + gainDb);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new GlowProcessor(); }

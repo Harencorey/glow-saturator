@@ -43,11 +43,11 @@ presets, **A/B** and **undo/redo**. Right-click the background for the interface
 **Input** (before the tubes)
 | Control | What it does |
 |---|---|
-| **High-Pass** | 20 Hz–1 kHz, −3 dB at the knob frequency. The very bottom of the knob is Off; the first step up is 20 Hz. Keeps lows out of the saturation. It also shows as the **HP** point on the EQ curve below (drag it sideways; double-click it for Off). |
-| **12 dB / 24 dB** | High-pass slope: 12 dB/oct (gentle) or 24 dB/oct (Linkwitz-Riley, steep). Switching glides between the two, no click. |
-| **Keep Lows** | A switch: everything the high-pass removes skips the tubes and comes back **clean, at full level**, so the low end stays full and solid while only what's above it saturates (a clean low-band split, like a parallel crossover). The split is exact: on quiet (clean) signal the output is flat within 0.3 dB vs the HPF off. Off = a plain cut. The dashed line on the curve shows the clean lows. Switching fades over 20 ms. |
-| **Pre-sat EQ** | The curve under the high-pass: what goes into the tubes. **M** = a fully parametric mid bell (40 Hz–12 kHz, ±15 dB, Q 0.1–10), **H** = a high shelf (1–20 kHz, Q shapes the corner: 0.71 plain, higher adds the passive-style bump/dip). The curve includes the high-pass (cut region shaded). **Drag** a point = frequency + gain, **Cmd-drag** = Q, **Option-drag** = frequency only, **hold Shift** = solo the band, **double-click** = bypass the band, Option-double-click = gain to 0 dB. Dragging switches the EQ on. **ON** switches it on/off. |
-| **LINK** | The exact opposite EQ runs after the tubes (the dashed mirror curve), so you change *what saturates* (push the mids into the tubes, say) while the overall tone stays put. Measured: linked, it nets to 0.00 dB on clean signal. **With Link off there is no post EQ**: shape the saturated sound with the Wet EQ instead. Note: boosting into the tubes makes them compress harder, so with Link the tone stays put but the level drops (about 2.5 dB for +8 dB mid / +6 dB high at Drive 50); turn on Auto to compare at matched loudness. |
+| **High-Pass** | 20 Hz–1 kHz, −3 dB at the knob frequency. The very bottom of the knob is Off; the first step up is 20 Hz. Keeps lows out of the saturation. It also shows as the **HP** point on the EQ curve above (drag it sideways; double-click it for Off). |
+| **Slope 6 / 12 / 24 / 36** | High-pass slope in dB/oct (the four squares right of the knob): 6 (a broad tilt), 12 (gentle), 24 (Linkwitz-Riley, steep, the default) or 36 (Linkwitz-Riley 36, a wall). Every slope is −3 dB at the knob frequency. Switching glides, no click. 12, 24 and 36 are phase-locked to the dry path; **6 dB/oct can't be** (a 1st-order filter has no all-pass twin), so with Keep Lows **off** and Mix below 100 % the low end of the blend can sit up to ~2 dB under a perfect sum around the corner frequency. With Keep Lows on (the default), 6 dB/oct is exact too. Sessions from before the 4-way slope keep their 12 or 24. |
+| **Keep Lows** | The square button left of the knob: everything the high-pass removes skips the tubes and comes back **clean, at full level**, so the low end stays full and solid while only what's above it saturates (a clean low-band split, like a parallel crossover). The split is exact: on quiet (clean) signal the output is flat within 0.3 dB vs the HPF off. Off = a plain cut. The dashed line on the curve shows the clean lows. Switching fades over 20 ms. |
+| **Pre-sat EQ** | The small curve at the top of the card: what goes into the tubes. It's the whole EQ (there's no separate expanded view). **M** = a fully parametric mid bell (40 Hz–12 kHz, ±15 dB, Q 0.1–10), **H** = a high shelf (1–20 kHz, Q shapes the corner: 0.71 plain, higher adds the passive-style bump/dip). The curve includes the high-pass (cut region shaded). **Drag** a point = frequency + gain, **Cmd-drag** = Q, **Option-drag** = frequency only, **hold Shift** = solo the band, **double-click** = bypass the band, Option-double-click = gain to 0 dB. Dragging switches the EQ on. The lamp next to PRE-SAT EQ switches it on/off. |
+| **MIRROR** | (Was LINK.) The exact opposite EQ runs after the tubes (the dashed mirror curve), so you change *what saturates* (push the mids into the tubes, say) while the overall tone stays put. Measured: linked, it nets to 0.00 dB on clean signal. **With Mirror off there is no post EQ**: shape the saturated sound with the Wet EQ instead. Note: boosting into the tubes makes them compress harder, so with Mirror the tone stays put but the level drops (about 2.5 dB for +8 dB mid / +6 dB high at Drive 50); turn on Auto to compare at matched loudness. |
 
 **Tubes**
 | Control | What it does |
@@ -66,7 +66,7 @@ presets, **A/B** and **undo/redo**. Right-click the background for the interface
 | **DRY / WET EQ, COMP** | Each path's own EQ and compressor, before the Mix: DRY (left) works on the clean path, WET (right) on the saturated one. Click the lamp (or double-click the button) to switch one on/off; click the rest to open its editor in the drawer under the main window. The arrows between them swap that path's order (top runs first). |
 | **IN / OUT meters** | Peak meters, L and R: IN is after the Input knob (what hits the tubes), OUT is the plug-in's output. The number is the highest peak so far (red once it has gone over 0 dBFS); click a meter to reset it. |
 | **Input** | −24 to +24 dB, before everything: push it to drive the tubes harder. Auto Gain measures the input before this trim, so with Auto on, Input changes the drive, not the level: after you move Input (or Drive, Density, Even, Odd, Mix) it re-matches in about half a second, then goes back to its slow, steady 3 s average. (Only knob turns in the window do this; host automation keeps the slow match, so automated moves never make it ride the level.) |
-| **Output** | −24 to +12 dB trim, the last thing in the chain. |
+| **Output** | −24 to +24 dB trim, the last thing in the chain (0 dB = knob straight up, like Input). |
 | **Auto** | Master auto gain (note: Drive 0 is not a bypass. The tube voicing EQ stays in, about +1.6 dB around 100 Hz, so AUTO typically shows −0.1 to −1 dB there, more on bass-heavy material): keeps the output as loud as the input (K-weighted, like LUFS, averaged over ~3 s), so Drive/EQ/comp moves don't fool your ears and bypass A/Bs are fair. The AUTO tooltip shows what it's applying (±18 dB max). It holds through silence and only updates while audio is playing. Output trims on top. It's slow on purpose: it matches loudness, it doesn't ride the level. |
 
 The EQ / COMP editors (Dry and Wet):
@@ -93,7 +93,7 @@ switching or automation the worst momentary loss is 0.1 dB.
 Trade-off: phase-locking adds an all-pass to the *whole* output around the frequencies you EQ, which smears the
 low end in time (e.g. ~5-6 ms around a 100 Hz shelf vs ~1 ms for a normal EQ). So Glow only phase-locks when it
 matters: **a filter is phase-locked only while the clean path is audible** (Mix below 100 %). Otherwise it's an ordinary EQ with normal, tight phase, and it crossfades between the two in 50 ms when
-that changes. **Linked pairs** (pre-sat EQ Link) always use an ordinary EQ plus its exact inverse, which
+that changes. **Linked pairs** (pre-sat EQ Mirror) always use an ordinary EQ plus its exact inverse, which
 cancels completely, phase included (measured 0.00 ms / 0.00 dB), so they need no all-pass at all. A flat band (0 dB) is fully switched out.
 
 ## Signal flow
@@ -102,7 +102,7 @@ cancels completely, phase included (measured 0.00 ms / 0.00 dB), so they need no
 in ─┬─ HPF → pre-sat EQ → input coupling HPFs (~24 Hz res.) → low bump (+2.8 dB @ 44 Hz) → presence dip
     │   → [4x oversampled]  input tube stage → coupling cap (~10 Hz) → Drive (+Odd) → output tube stage
     │                       (each stage's even part scaled by Even)
-    │   → DC blocker → auto-gain → mirror EQ (Link) → + clean lows (Keep Lows) → WET EQ / Comp ─┐ Mix
+    │   → DC blocker → auto-gain → mirror EQ (Mirror) → + clean lows (Keep Lows) → WET EQ / Comp ─┐ Mix
     └─ dry (latency-matched, + all-passes of the wet filters) → DRY EQ / Comp ─────────────────────┴─(crossfade)
        → Auto Gain → Output
 ```

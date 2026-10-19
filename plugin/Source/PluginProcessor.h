@@ -40,7 +40,6 @@ public:
     juce::UndoManager undoManager;   // the editor's Undo / Redo (parameter changes)
     // editor view state, kept with the session (not parameters, not undoable): open sections + size
     // the editor's view (saved with the session; hosts may restore it off the message thread)
-    std::atomic<bool> uiInputOpen { false };
     std::atomic<float> uiScale { 0.9f };
     juce::AudioProcessorValueTreeState apvts;
     PresetManager presets { apvts };
@@ -82,7 +81,7 @@ private:
     std::atomic<float>* pOdd = nullptr;
     std::atomic<float>* pDensity = nullptr;
     std::atomic<float>* pHpf = nullptr;
-    std::atomic<float>* pHpf24 = nullptr, * pKeepLows = nullptr;
+    std::atomic<float>* pHpfSlope = nullptr, * pKeepLows = nullptr;
     std::atomic<float>* pOutput = nullptr, * pAuto = nullptr, * pEnvAmt = nullptr, * pEnvSpeed = nullptr;
     std::atomic<float>* pInput = nullptr, * pMix = nullptr;
     std::map<std::string, std::atomic<float>*> preEqP;
