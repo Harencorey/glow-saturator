@@ -63,12 +63,11 @@ public:
                                { "wetEqOn", 1 }, { "wetEqFreq4", 6000 }, { "wetEqGain4", -8 },
                                { "wetCompOn", 1 }, { "wetCompInput", 12 }, { "wetCompRatio", 7 }, { "wetCompColour", 2 },
                                { "wetCompMix", 60 }, { "wetCompAuto", 1 } } },
-            // the other drive types (driveType: 1 Iron, 2 Tape, 3 Diode, 4 Clip)
+            // the other drive types (driveType: 1 Iron, 2 Tape, 3 Diode)
             { "Iron Console Bus", { { "driveType", 1 }, { "drive", 40 }, { "density", 50 }, { "autoGain", 1 } } },
             { "Tape Glue", { { "driveType", 2 }, { "drive", 45 }, { "density", 45 }, { "autoGain", 1 } } },
             { "Diode Grit", { { "driveType", 3 }, { "drive", 55 }, { "density", 60 }, { "even", 40 }, { "hpf", 100 },
                               { "keepLows", 1 }, { "mix", 75 }, { "autoGain", 1 } } },
-            { "Clip Smash", { { "driveType", 4 }, { "drive", 65 }, { "density", 75 }, { "autoGain", 1 } } },
         };
         return f;
     }

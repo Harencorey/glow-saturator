@@ -214,8 +214,8 @@ int main()
             });
             check (std::lround (tOld->apvts.getRawParameterValue ("driveType")->load()) == 0, "old session (no drive type) loads as TUBE");
             auto* dtp = fresh.apvts.getParameter ("driveType");
-            check (dtp->getText (dtp->convertTo0to1 (4.0f), 20) == "Clip" && dtp->getText (dtp->convertTo0to1 (1.0f), 20) == "Iron",
-                   "drive types: Tube / Iron / Tape / Diode / Clip");
+            check (dtp->getText (dtp->convertTo0to1 (3.0f), 20) == "Diode" && dtp->getText (dtp->convertTo0to1 (1.0f), 20) == "Iron"
+                   && std::lround (dtp->convertFrom0to1 (1.0f)) == 3, "drive types: Tube / Iron / Tape / Diode");
             auto* op = fresh.apvts.getParameter ("output");
             check (std::abs (op->getValue() - 0.5f) < 1e-6f && std::abs (op->convertFrom0to1 (1.0f) - 24.0f) < 1e-4f,
                    "Output: -24..+24 dB, 0 dB at the middle (knob straight up)");

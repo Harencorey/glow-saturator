@@ -70,7 +70,7 @@ public:
     static constexpr float kHpfOffHz = 19.0f, kHpfMinHz = 20.0f;
     struct Params
     {
-        int type = DriveTypes::tube;   // TUBE / IRON / TAPE / DIODE / CLIP
+        int type = DriveTypes::tube;   // TUBE / IRON / TAPE / DIODE
         float drive = 25.0f;    // 0..100     macro: more of both even and odd
         float even = 50.0f;     // 0..100     50 = as measured, 0 = no even harmonics, 100 = 3x
         float odd = 50.0f;      // 0..100     50 = as measured, -/+12 dB of clipping depth at 0/100
@@ -709,7 +709,7 @@ public:
     }
 
 private:
-    // The oversampled nonlinearity for the IRON / TAPE / DIODE / CLIP types, and for any type
+    // The oversampled nonlinearity for the IRON / TAPE / DIODE types, and for any type
     // switch (old and new core run side by side for 25 ms and crossfade). Tube alone uses the
     // loop in process(), untouched.
     void processOtherTypes (juce::dsp::AudioBlock<float>& up, int nch, int nu, float g0, float gStep,

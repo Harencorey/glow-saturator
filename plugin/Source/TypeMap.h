@@ -1,5 +1,5 @@
 #pragma once
-// Drive -> gain law for the IRON / TAPE / DIODE / CLIP types.
+// Drive -> gain law for the IRON / TAPE / DIODE types.
 // preDb: how hard Drive hits the core. postDb: the output staging after it, CALIBRATED
 // (model/gen_typemap.py) so each type's loudness follows Tube's at every Drive setting on
 // program-like material: switching type at the same Drive stays roughly level-matched.
@@ -8,26 +8,25 @@
 
 namespace TypeMap
 {
-// [type - 1][drive / 5], 21 points, linearly interpolated
-inline constexpr float kPreMaxDb[4] { 24.0f, 24.0f, 30.0f, 24.0f };
-inline constexpr float post[4][21] = {
+// [type - 1][drive / 5] (1 Iron, 2 Tape, 3 Diode), 21 points, linearly interpolated
+inline constexpr float kPreMaxDb[3] { 24.0f, 24.0f, 30.0f };
+inline constexpr float post[3][21] = {
     { 0.41f, 0.23f, -0.02f, -0.60f, -1.80f, -3.00f, -4.20f, -5.40f, -6.60f, -7.80f, -9.00f, -10.20f, -11.40f, -12.60f, -13.80f, -15.00f, -16.20f, -17.40f, -18.60f, -19.80f, -21.00f },
     { 0.63f, 0.50f, 0.33f, 0.08f, -0.27f, -0.73f, -1.33f, -2.04f, -2.79f, -3.52f, -4.16f, -4.74f, -5.29f, -5.82f, -6.39f, -7.03f, -7.75f, -8.56f, -9.44f, -10.43f, -11.75f },
     { 0.37f, -0.12f, -0.66f, -1.28f, -2.01f, -2.82f, -3.75f, -4.77f, -5.79f, -6.75f, -7.57f, -8.27f, -8.90f, -9.46f, -10.02f, -10.60f, -11.24f, -11.92f, -12.66f, -13.50f, -14.65f },
-    { 0.37f, 0.17f, -0.09f, -0.45f, -0.94f, -1.54f, -2.28f, -3.15f, -4.06f, -4.95f, -5.76f, -6.48f, -7.15f, -7.79f, -8.42f, -9.11f, -9.85f, -10.64f, -11.50f, -12.44f, -13.69f }
 };
 
 inline float preDb (int type, float drive)
 {
     const float d = std::clamp (drive, 0.0f, 100.0f) / 100.0f;
-    return kPreMaxDb[std::clamp (type - 1, 0, 3)] * d;
+    return kPreMaxDb[std::clamp (type - 1, 0, 2)] * d;
 }
 inline float postDb (int type, float drive)
 {
     const float x = std::clamp (drive, 0.0f, 100.0f) / 5.0f;
     const int i = std::min (19, (int) x);
     const float t = x - (float) i;
-    const auto& p = post[std::clamp (type - 1, 0, 3)];
+    const auto& p = post[std::clamp (type - 1, 0, 2)];
     return p[i] + (p[i + 1] - p[i]) * t;
 }
 }

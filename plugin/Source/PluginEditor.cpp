@@ -380,7 +380,7 @@ GlowEditor::GlowEditor (GlowProcessor& p)
         }
     }
     // ---- drive TYPE
-    for (int i = 0; i < 5; ++i)
+    for (int i = 0; i < kNumTypes; ++i)
     {
         typeBtn[i].setClickingTogglesState (false);
         body.addAndMakeVisible (typeBtn[i]);
@@ -389,7 +389,7 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     {
         typeAttach = std::make_unique<ParameterAttachment> (*tp, [this] (float v) { showType ((int) std::lround (v)); });
         typeAttach->sendInitialUpdate();
-        for (int i = 0; i < 5; ++i)
+        for (int i = 0; i < kNumTypes; ++i)
             typeBtn[i].onClick = [this, i] { typeAttach->setValueAsCompleteGesture ((float) i); };
     }
     preEqLink.setup (body, s, "preEqLink", "MIRROR");
@@ -562,23 +562,21 @@ void GlowEditor::closePanel()
 
 void GlowEditor::showType (int t)
 {
-    t = jlimit (0, 4, t);
-    for (int i = 0; i < 5; ++i) typeBtn[i].setToggleState (i == t, dontSendNotification);
+    t = jlimit (0, kNumTypes - 1, t);
+    for (int i = 0; i < kNumTypes; ++i) typeBtn[i].setToggleState (i == t, dontSendNotification);
     static const char* what[] {
         "TUBE: two triode stages, the original Glow sound. Warm even + odd harmonics, bloom, and 'breathing' after loud hits.",
         "IRON: a console output transformer. The lows thicken and compress while the highs stay clean and open.",
         "TAPE: 15 ips tape. Soft, rounded saturation; loud highs soften first, so transients round off.",
-        "DIODE: a diode clipper, overdrive-pedal style. Harder than tube, odd-heavy bite that stays musical.",
-        "CLIP: a hard clipper. Clean right up to the ceiling, then flat-tops (antialiased, so it stays clean up top)." };
+        "DIODE: a diode clipper, overdrive-pedal style. Harder than tube, odd-heavy bite that stays musical." };
     static const char* dens[] {
         "DENSITY: how hard the first tube stage is hit. More = lopsided bloom and 'breathing' after loud hits.",
         "DENSITY (Iron): core size. Low = a big core, only the deepest lows saturate. High = a small core, the saturation "
         "reaches up into the low mids (thicker, grittier).",
         "DENSITY (Tape): tape level. Higher = the highs start to soften earlier and lower down (more self-erasure, rounder "
         "transients).",
-        "DENSITY (Diode): the diodes. Low = germanium (soft knee, gentle). High = silicon (hard knee, more bite).",
-        "DENSITY (Clip): the corner. Low = slightly rounded. High = brickwall." };
-    for (int i = 0; i < 5; ++i) typeBtn[i].setTooltip (what[i]);
+        "DENSITY (Diode): the diodes. Low = germanium (soft knee, gentle). High = silicon (hard knee, more bite)." };
+    for (int i = 0; i < kNumTypes; ++i) typeBtn[i].setTooltip (what[i]);
     density.tip (dens[t]);
     body.repaint();
 }
@@ -1014,8 +1012,8 @@ void GlowEditor::applyLayout()
         knobAt (output, { R - 156, cy - 4 }, 44, 13, { R - 130, cy - 11, 56, 14 });
         autoGain.button.setBounds (R - 70, cy - 14, 74, 28);
         // drive TYPE: centred under the Drive knob, its label to the left
-        const int tw = 60, tg = 4, groupW = 5 * tw + 4 * tg, tx0 = centreCard.getCentreX() - groupW / 2;
-        for (int i = 0; i < 5; ++i)
+        const int tw = 64, tg = 4, groupW = kNumTypes * tw + (kNumTypes - 1) * tg, tx0 = centreCard.getCentreX() - groupW / 2;
+        for (int i = 0; i < kNumTypes; ++i)
             typeBtn[i].setBounds (tx0 + i * (tw + tg), cy - 14, tw, 28);
         const int mx = leftCard.getX() + 30, mw = jmin (470, tx0 - 52 - 24 - mx);
         inMeter.setBounds (mx, cy - 24, mw, 12);

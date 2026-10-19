@@ -1,4 +1,4 @@
-"""Calibrates the IRON / TAPE / DIODE / CLIP output staging (IRON's makeup capped at +3 dB, see below) (TypeMap.h) so each type's
+"""Calibrates the IRON / TAPE / DIODE output staging (IRON's makeup capped at +3 dB, see below) (TypeMap.h) so each type's
 loudness follows TUBE's at every Drive setting: switching type at the same Drive stays
 roughly level-matched. Loudness = BS.1770 K-weighted energy, averaged over two materials
 (the synthetic demo loop at mix-bus level, and pink noise at -18 dBFS RMS).
@@ -54,16 +54,16 @@ def measure(mats, t, d):
 
 def read_post():
     s = open(HDR).read()
-    body = s[s.index("post[4][21] = {"):]
-    rows = re.findall(r"\{([^{}]*)\}", body)[:4]
+    body = s[s.index("post[3][21] = {"):]
+    rows = re.findall(r"\{([^{}]*)\}", body)[:3]
     return [[float(v.strip().rstrip("f")) for v in r.split(",")] for r in rows], s
 
 
 def write_post(post, s):
     rows = ",\n".join("    { " + ", ".join(f"{v:.2f}f" for v in r) + " }" for r in post)
-    a = s.index("post[4][21] = {")
+    a = s.index("post[3][21] = {")
     b = s.index("};", a)
-    s = s[:a] + "post[4][21] = {\n" + rows + "\n" + s[b:]
+    s = s[:a] + "post[3][21] = {\n" + rows + "\n" + s[b:]
     open(HDR, "w").write(s)
 
 
@@ -74,7 +74,7 @@ if __name__ == "__main__":
     post, src = read_post()
     verify = "--verify" in sys.argv
     worst = 0.0
-    for t in range(1, 5):
+    for t in range(1, 4):
         for j, d in enumerate(DRIVES):
             delta = tube[d] - measure(mats, t, d)
             worst = max(worst, abs(delta))

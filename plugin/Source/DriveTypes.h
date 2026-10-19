@@ -2,7 +2,7 @@
 #include <cmath>
 #include <algorithm>
 
-// The drive types besides TUBE. Each one is a "core" that runs at the oversampled rate on
+// The drive types besides TUBE (IRON, TAPE, DIODE). Each one is a "core" that runs at the oversampled rate on
 // the driven signal x (the tube path's front end, coupling cap and Drive gain stay shared).
 //
 // Every core is exactly unity for small signals: it only ADDS harmonics/compression as the
@@ -15,16 +15,16 @@
 // type's own character control.
 namespace DriveTypes
 {
-    enum Type { tube = 0, iron, tape, diode, clip, count };
+    enum Type { tube = 0, iron, tape, diode, count };
     inline const char* name (int t)
     {
-        static const char* n[] { "TUBE", "IRON", "TAPE", "DIODE", "CLIP" };
+        static const char* n[] { "TUBE", "IRON", "TAPE", "DIODE" };
         return n[std::clamp (t, 0, (int) count - 1)];
     }
 
     // Natural asymmetry of each core (ceiling 1 - a on the positive side, 1 + a on the
     // negative side): the source of its even harmonics at Even = 50 %.
-    inline constexpr float kAsym[count] { 0.0f, 0.05f, 0.03f, 0.08f, 0.05f };
+    inline constexpr float kAsym[count] { 0.0f, 0.05f, 0.03f, 0.08f };
 
     // soft curve r / sqrt(1 + r^2) with asymmetric ceilings (cheap: no pow)
     inline float soft2 (float v, float asym) noexcept
@@ -57,71 +57,6 @@ namespace DriveTypes
     }
 
     //==========================================================================
-    // Hard clipper with a quadratic corner of half-width k (k = 0: brickwall), asymmetric
-    // ceilings, and first-order antiderivative antialiasing (ADAA): the output is the average
-    // of the curve over each step between samples, which removes most of the aliasing a hard
-    // corner makes. Small signals pass as the average of two samples (a half-sample delay at
-    // the oversampled rate: 1.3 us, inaudible, no level change below 20 kHz).
-    struct HardClip
-    {
-        // positive side, ceiling c, knee half-width k
-        static double fPos (double x, double c, double k) noexcept
-        {
-            if (k <= 0.0) return std::min (x, c);
-            const double a = c - k;
-            if (x <= a) return x;
-            if (x >= c + k) return c;
-            const double d = x - a;
-            return x - d * d / (4.0 * k);
-        }
-        static double FPos (double x, double c, double k) noexcept   // integral of fPos from 0 to x >= 0
-        {
-            const double a = c - k;
-            if (x <= a) return 0.5 * x * x;
-            if (k <= 0.0) return 0.5 * c * c + c * (x - c);
-            const double b = c + k;
-            auto knee = [a, k] (double t) { const double d = t - a; return 0.5 * t * t - d * d * d / (12.0 * k); };
-            if (x <= b) return knee (x);
-            return knee (b) + c * (x - b);
-        }
-        // the full curve and its antiderivative (both signs)
-        static double f (double x, double cp, double cn, double k) noexcept { return x >= 0.0 ? fPos (x, cp, k) : -fPos (-x, cn, k); }
-        static double F (double x, double cp, double cn, double k) noexcept { return x >= 0.0 ? FPos (x, cp, k) : FPos (-x, cn, k); }
-
-        // Even scaling: y = (1+e)/2 f(x) + (e-1)/2 f(-x); its antiderivative uses F(x) and -F(-x)
-        static double g (double x, double cp, double cn, double k, double e) noexcept
-        {
-            return 0.5 * (1.0 + e) * f (x, cp, cn, k) + 0.5 * (e - 1.0) * f (-x, cp, cn, k);
-        }
-        static double G (double x, double cp, double cn, double k, double e) noexcept
-        {
-            return 0.5 * (1.0 + e) * F (x, cp, cn, k) - 0.5 * (e - 1.0) * F (-x, cp, cn, k);
-        }
-
-        double px = 0.0, pG = 0.0;
-        bool fresh = true;
-        void reset() { fresh = true; px = pG = 0.0; }
-
-        float process (float xin, float asym, float k, float e) noexcept
-        {
-            const double x = xin, cp = 1.0 - asym, cn = 1.0 + asym;
-            const double Gx = G (x, cp, cn, k, e);
-            if (fresh) { fresh = false; px = x; pG = Gx; return (float) g (x, cp, cn, k, e); }
-            const double dx = x - px;
-            double y;
-            if (std::abs (dx) > 1.0e-5) y = (Gx - pG) / dx;
-            else y = g (0.5 * (x + px), cp, cn, k, e);
-            px = x; pG = Gx;
-            return (float) y;
-        }
-        // stateless version (loudness estimate for the Odd auto-gain)
-        static float peek (float x, float asym, float k, float e) noexcept
-        {
-            return (float) g (x, 1.0 - asym, 1.0 + asym, k, e);
-        }
-    };
-
-    //==========================================================================
     // Per-channel state of the cores that have memory
     // The filters run on the signal BEFORE the Drive gain (they're linear, so scaling their
     // output by the gain is the same thing), and they run all the time whichever type is
@@ -130,9 +65,8 @@ namespace DriveTypes
     {
         double ironLp = 0.0;     // IRON: core flux (low-passed signal)
         double tapeLp = 0.0;     // TAPE: low band (the highs are what's above it)
-        HardClip hard;           // CLIP (antialiasing memory: restarts cleanly when selected)
-        void reset() { ironLp = tapeLp = 0.0; hard.reset(); }
-        void resetType (int t) { if (t == clip) hard.reset(); }
+        void reset() { ironLp = tapeLp = 0.0; }
+        void resetType (int) {}   // (no core has memory beyond these filters)
         void update (const struct Settings& s, float v) noexcept;
     };
 
@@ -142,7 +76,6 @@ namespace DriveTypes
         float ironA = 0.0f;        // IRON flux low-pass coefficient
         float tapeA = 0.0f;        // TAPE split low-pass coefficient
         float tapeHfDrive = 1.0f;  // TAPE: how much harder the highs hit their own saturation
-        float clipKnee = 0.1f;     // CLIP: corner half-width
     };
 
     inline void State::update (const Settings& s, float v) noexcept
@@ -167,8 +100,6 @@ namespace DriveTypes
         // 0 .. +12 dB harder. 50 % = 6 kHz, +6 dB.
         s.tapeA = onePoleCoeff (12000.0 * std::pow (0.25, (double) d), fsOs);
         s.tapeHfDrive = std::pow (10.0f, 12.0f * d / 20.0f);
-        // CLIP: corner. 0 % = slightly rounded (half-width 0.4), 50 % = 0.1, 100 % = brickwall.
-        s.clipKnee = 0.4f * (1.0f - d) * (1.0f - d);
         return s;
     }
 
@@ -203,8 +134,6 @@ namespace DriveTypes
             }
             case diode:
                 return evenScaled ([&diodeKnee] (float q) { return clipKnee (q, diodeKnee, kAsym[diode]); }, x, e);
-            case clip:
-                return st.hard.process (x, kAsym[clip], s.clipKnee, e);
             default:
                 return x;
         }
@@ -231,8 +160,6 @@ namespace DriveTypes
             }
             case diode:
                 return evenScaled ([&diodeKnee] (float q) { return clipKnee (q, diodeKnee, kAsym[diode]); }, xs, e);
-            case clip:
-                return HardClip::peek (xs, kAsym[clip], s.clipKnee, e);
             default:
                 return xs;
         }
