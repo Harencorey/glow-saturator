@@ -25,6 +25,10 @@ def tf(x, y, sr):
 SETTINGS = {
     "HPF 120 + pre-EQ mid +6@3k, high -4@8k": dict(hpf=120, peq=1, peqMF=3000, peqMG=6, peqHF=8000, peqHG=-4),
     "HPF 150 12 dB + Keep lows": dict(hpf=150, hpf24=0, keep=1),
+    "HPF 150 36 dB": dict(hpf=150, slope=3, keep=0),
+    "HPF 150 36 dB + Keep lows": dict(hpf=150, slope=3, keep=1),
+    "HPF 150 6 dB + Keep lows": dict(hpf=150, slope=0, keep=1),
+    "HPF 150 6 dB (not phase-locked: expect up to ~85 deg)": dict(hpf=150, slope=0, keep=0),
     "HPF 200 24 dB + Keep lows + linked EQ": dict(hpf=200, keep=1, peq=1, peqLink=1, peqMF=900, peqMG=8, peqHG=-6),
     "wet EQ (LS+4@100, bell+8@300 Q4, HS-6@6k)": dict(wetEq=1, wetF1=100, wetG1=4, wetF2=300, wetG2=8, wetQ2=4, wetF4=6000, wetG4=-6),
     "dry EQ (bell+6@60 Q.5, bell-10@2k Q8)": dict(dryEq=1, dryLS=0, dryF1=60, dryG1=6, dryQ1=0.5, dryF3=2000, dryG3=-10, dryQ3=8),

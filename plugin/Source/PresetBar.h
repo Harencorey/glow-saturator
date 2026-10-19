@@ -33,11 +33,11 @@ public:
     void resized() override
     {
         auto r = getLocalBounds();
-        save.setBounds (r.removeFromRight (52));
-        r.removeFromRight (6);
-        prev.setBounds (r.removeFromLeft (26));
-        next.setBounds (r.removeFromRight (26));
-        nameButton.setBounds (r.reduced (4, 0));
+        save.setBounds (r.removeFromRight (54));
+        r.removeFromRight (10);
+        prev.setBounds (r.removeFromLeft (28));
+        next.setBounds (r.removeFromRight (28));
+        nameButton.setBounds (r.reduced (6, 0));
     }
 
 private:
@@ -48,12 +48,12 @@ private:
         void paintButton (juce::Graphics& g, bool over, bool) override
         {
             auto r = getLocalBounds().toFloat().reduced (0.5f);
-            g.setColour (juce::Colours::black.withAlpha (over ? 0.42f : 0.32f));
+            g.setColour (GlowLookAndFeel::well.brighter (over ? 0.12f : 0.0f));
             g.fillRoundedRectangle (r, 4.0f);
-            g.setColour (GlowLookAndFeel::textDim.withAlpha (0.5f));
+            g.setColour (GlowLookAndFeel::edge.brighter (over ? 0.35f : 0.15f));
             g.drawRoundedRectangle (r, 4.0f, 1.0f);
             g.setColour (GlowLookAndFeel::text);
-            g.setFont (juce::FontOptions (12.5f));
+            g.setFont (juce::FontOptions (13.0f).withKerningFactor (0.04f));
             g.drawFittedText (getButtonText(), getLocalBounds().reduced (22, 0), juce::Justification::centred, 1);
             juce::Path tri;
             const float x = r.getRight() - 14.0f, y = r.getCentreY();

@@ -23,6 +23,8 @@ int main (int argc, char** argv)
 
     GlowDSP::Params p;
     int block = 512, solo = 0, bsPath = 0, bsBand = -1;
+    bool explicitMix = false, rematch = false;   // rematch=1: as if the knob was turned in the UI (fast Auto Gain re-match)
+    float legacyDryDb = -60.0f, legacyWetDb = 0.0f;   // old dryLevel / wetLevel keys
     // settings before the first at= apply from the start; each at=<seconds> starts a new
     // automation point whose settings are applied on top of the previous ones at that time
     std::vector<std::pair<double, std::vector<juce::String>>> points { { 0.0, {} } };
@@ -32,7 +34,7 @@ int main (int argc, char** argv)
         if (arg.startsWith ("at=")) points.push_back ({ arg.substring (3).getDoubleValue(), {} });
         else points.back().second.push_back (arg);
     }
-    auto apply = [&p, &block, &solo, &bsPath, &bsBand] (const juce::String& arg) -> bool
+    auto apply = [&p, &block, &solo, &bsPath, &bsBand, &explicitMix, &legacyDryDb, &legacyWetDb, &rematch] (const juce::String& arg) -> bool
     {
         const auto key = arg.upToFirstOccurrenceOf ("=", false, false);
         const float v = arg.fromFirstOccurrenceOf ("=", false, false).getFloatValue();
@@ -41,9 +43,12 @@ int main (int argc, char** argv)
         else if (key == "odd")     p.odd = v;
         else if (key == "density") p.density = v;
         else if (key == "hpf")     p.hpfHz = v;
-        else if (key == "hpf24")   p.hpf24 = v > 0.5f;
+        else if (key == "hpf24")   p.hpfSlope = v > 0.5f ? 2 : 1;   // legacy key
+        else if (key == "slope")   p.hpfSlope = (int) v;            // 0 = 6, 1 = 12, 2 = 24, 3 = 36 dB/oct
         else if (key == "keep")    p.keepLows = v > 0.5f;
-        else if (key.startsWith ("dry") || key.startsWith ("wet"))
+        else if (key == "dryLevel") legacyDryDb = v;   // old keys: the Dry/Wet balance -> Mix (+ Output)
+        else if (key == "wetLevel") legacyWetDb = v;
+        else if (key.startsWith ("dry") || key.startsWith ("wet"))   // each path's EQ / comp
         {
             auto& st = key.startsWith ("dry") ? p.dry : p.wet;
             const auto k = key.substring (3);
@@ -65,9 +70,7 @@ int main (int argc, char** argv)
             else if (k == "Colour") st.comp.colour = (int) v;
             else if (k == "Hpf")    st.comp.detectorHpf = v > 0.5f;
             else if (k == "Mix")    st.comp.mix = v;
-            else if (k == "Mute")   st.mute = v > 0.5f;
             else if (k == "Auto")   st.comp.autoMakeup = v > 0.5f;
-            else if (k == "Solo")   st.solo = v > 0.5f;
             else if (k == "Order")  st.compFirst = v > 0.5f;   // 1 = Comp -> EQ
             else return false;
         }
@@ -86,6 +89,9 @@ int main (int argc, char** argv)
         else if (key == "peqHQ")   p.preEq.q[3] = v;
         else if (key == "peqHF")   p.preEq.freq[3] = v;
         else if (key == "peqHG")   p.preEq.gain[3] = v;
+        else if (key == "xmix")    { p.mix = v; explicitMix = true; }   // new Mix knob (0..100 %)
+        else if (key == "inDb")    p.inputDb = v;
+        else if (key == "rematch") rematch = v > 0.5f;
         else if (key == "block")   block = juce::jmax (1, (int) v);
         else if (key == "solo")    solo = (int) v;   // 1 = wet path only, 2 = dry path only (both still run)
         else if (key == "bsPath")  bsPath = (int) v; // EQ band solo: path 1 dry, 2 wet, 3 pre ...
@@ -98,6 +104,19 @@ int main (int argc, char** argv)
             if (! apply (arg)) { std::printf ("unknown option %s\n", arg.toRawUTF8()); return 1; }
     p = GlowDSP::Params {};
     for (auto& arg : points.front().second) apply (arg);
+    // without xmix=, dryLevel/wetLevel keep their old meaning (independent faders, summed):
+    // the same blend as a Mix position plus an overall gain (on Output)
+    auto withMix = [&explicitMix, &legacyDryDb, &legacyWetDb] (GlowDSP::Params q)
+    {
+        if (! explicitMix)
+        {
+            auto lin = [] (float db) { return db <= -60.0f ? 0.0f : juce::Decibels::decibelsToGain (db); };
+            float g = 0.0f;
+            GlowDSP::legacyMix (lin (legacyDryDb), lin (legacyWetDb), q.mix, g);
+            if (! q.autoGain) q.outputDb += g;
+        }
+        return q;
+    };
 
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
@@ -108,7 +127,7 @@ int main (int argc, char** argv)
     const int len = (int) reader->lengthInSamples;
     GlowDSP dsp;
     dsp.prepare (reader->sampleRate, block, nch);
-    dsp.setParams (p);
+    dsp.setParams (withMix (p));
     dsp.testSolo = solo;
     dsp.setEqSolo (bsPath, bsBand);
     const int lat = dsp.getLatencySamples();
@@ -125,7 +144,8 @@ int main (int argc, char** argv)
         while (nextPoint < points.size() && start >= (int) (points[nextPoint].first * reader->sampleRate))
         {
             for (auto& arg : points[nextPoint].second) apply (arg);
-            dsp.setParams (p);
+            dsp.setParams (withMix (p));
+            if (rematch) { dsp.requestAutoRematch(); rematch = false; }
             ++nextPoint;
         }
         const int n = juce::jmin (block, buf.getNumSamples() - start);

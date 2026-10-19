@@ -15,6 +15,13 @@
 // The 12 dB/oct high-pass uses a 1st-order high-pass times a matching 1st-order all-pass as
 // the prototype: its pair is the 1st-order magnitude squared (12 dB/oct) with a 2nd-order
 // all-pass phase, so it crossfades in and out the same way the 24 dB one does.
+// The 36 dB/oct high-pass is two stages in series, a 2nd-order Butterworth at Q = 1 and the
+// 1st-order prototype above, at one corner: together a 3rd-order Butterworth, so the pair is
+// its square (a Linkwitz-Riley 36 dB/oct), phase-locked the same way.
+// The 6 dB/oct high-pass is a plain 1st-order filter. Its square would be 12 dB/oct, so it
+// can't use the trick; it runs as an ordinary filter (no all-pass twin on the other path).
+// A 1st-order high-pass leads by at most 90 degrees, so a blend never cancels; and Keep lows
+// is still exact, because x - HP1(x) is the matching 1st-order low-pass.
 //
 // Analog equivalent: it's how a Linkwitz-Riley crossover's two halves stay in phase -
 // the "missing" phase gets put on the other path instead of being left as a mismatch.
@@ -24,10 +31,33 @@
 // sample plan, so they stay locked even while things move.
 namespace Coherent
 {
-    enum class Kind { peak, lowShelf, highShelf, highPass, highPass12 };
-    inline bool isHighPass (Kind k) { return k == Kind::highPass || k == Kind::highPass12; }
+    enum class Kind { peak, lowShelf, highShelf, highPass, highPass12, highPass6, highPass36a, highPass36b };
+    inline bool isHighPass (Kind k)
+    {
+        return k == Kind::highPass || k == Kind::highPass12 || k == Kind::highPass6 || k == Kind::highPass36a || k == Kind::highPass36b;
+    }
+    // corner shifts: the knob frequency is the -3 dB point of the finished (squared) response
+    static constexpr double kLr4Shift = 1.24650, kLr2Shift = 1.55377, kLr6Shift = 1.15829;
+
+    // 1st-order high-pass at fc (bilinear), as a biquad with b2 = a2 = 0
+    inline void firstOrderHp (double fc, double sr, double& h0, double& a)
+    {
+        const double kk = std::tan (juce::MathConstants<double>::pi * juce::jmin (0.45 * sr, fc) / sr);
+        h0 = 1.0 / (1.0 + kk);
+        a = (kk - 1.0) / (kk + 1.0);
+    }
+    // 1st-order HP x the 1st-order all-pass with the same pole
+    inline void hpTimesAp (double fc, double sr, double* c)
+    {
+        double h0 = 0, a = 0;
+        firstOrderHp (fc, sr, h0, a);
+        const double h1 = -h0;
+        c[0] = h0 * a; c[1] = h0 + h1 * a; c[2] = h1; c[3] = 2.0 * a; c[4] = a * a;
+    }
 
     struct Coeffs { double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0; };
+
+    inline Coeffs designFull (Kind k, double fc, double gainDb, double q, double sr);
 
     // The half-gain prototype P(z).
     inline Coeffs designHalf (Kind k, double fc, double gainDb, double q, double sr)
@@ -42,13 +72,16 @@ namespace Coherent
             // LR4: -6 dB at its corner; shifted up so the knob frequency is the -3 dB point
             case Kind::highPass:  f.setHighPass (juce::jmin (0.45 * sr, fc / 1.24650), 0.70710678, sr); break;
             case Kind::highPass12:
+            case Kind::highPass36b:
             {
-                // 1st-order HP (shifted so the knob is the -3 dB point of the squared pair) x the
+                // 1st-order HP (shifted so the knob is the -3 dB point of the squared result) x the
                 // 1st-order all-pass with the same pole
-                const double kk = std::tan (juce::MathConstants<double>::pi * juce::jmin (0.45 * sr, fc / 1.55377) / sr);
-                const double h0 = 1.0 / (1.0 + kk), h1 = -h0, a = (kk - 1.0) / (kk + 1.0);
-                return { h0 * a, h0 + h1 * a, h1, 2.0 * a, a * a };
+                double c[5];
+                hpTimesAp (fc / (k == Kind::highPass12 ? kLr2Shift : kLr6Shift), sr, c);
+                return { c[0], c[1], c[2], c[3], c[4] };
             }
+            case Kind::highPass36a: f.setHighPass (juce::jmin (0.45 * sr, fc / kLr6Shift), 1.0, sr); break;
+            case Kind::highPass6:   return designFull (k, fc, gainDb, q, sr);   // not used phase-locked
         }
         return { f.b0, f.b1, f.b2, f.a1, f.a2 };
     }
@@ -65,8 +98,16 @@ namespace Coherent
             case Kind::peak:      f.setPeak (fc, gainDb, q, sr); break;
             case Kind::lowShelf:  f.setLowShelf (fc, gainDb, q, sr); break;
             case Kind::highShelf: f.setHighShelf (fc, gainDb, q, sr); break;
+            case Kind::highPass6:
+            {
+                double h0 = 0, a = 0;
+                firstOrderHp (fc, sr, h0, a);
+                return { h0, -h0, 0.0, a, 0.0 };
+            }
             case Kind::highPass:
-            case Kind::highPass12: f.setIdentity(); break;   // the high-pass is always phase-locked
+            case Kind::highPass12:
+            case Kind::highPass36a:
+            case Kind::highPass36b: f.setIdentity(); break;   // these high-passes are always phase-locked
         }
         return { f.b0, f.b1, f.b2, f.a1, f.a2 };
     }
@@ -127,7 +168,7 @@ namespace Coherent
         // coherent: the other path is audible, so phase-lock (else use the ordinary filter)
         void plan (bool enabled, float freq, float gainDb, float q, int n, bool coherent = true)
         {
-            if (isHighPass (kind)) coherent = true;
+            if (isHighPass (kind)) coherent = kind != Kind::highPass6;   // 6 dB/oct: always the ordinary filter
             numSegs = (n + kSeg - 1) / kSeg;
             const double tf = juce::jlimit (5.0, 0.45 * sr, (double) freq);
             const double tq = juce::jmax (0.1, (double) q);
@@ -234,6 +275,7 @@ namespace Coherent
         // Full-response helper for the UI: magnitude in dB of the settled filter.
         static double responseDb (Kind k, double fc, double gainDb, double q, double freq, double sr)
         {
+            if (k == Kind::highPass6) return 0.5 * magDb (designFull (k, fc, gainDb, q, sr), freq, sr);   // magDb is 2x
             return magDb (designHalf (k, fc, gainDb, q, sr), freq, sr);
         }
 

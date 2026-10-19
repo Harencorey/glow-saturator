@@ -73,7 +73,7 @@ public:
         float odd = 50.0f;      // 0..100     50 = as measured, -/+12 dB of clipping depth at 0/100
         float density = 50.0f;  // 0..100     input-stage heat: 50 = measured, 0 = clean, 100 = +12 dB hotter
         float hpfHz = kHpfOffHz; // Off, or 20..1000 Hz   pre-saturation high-pass
-        bool hpf24 = true;      // HPF slope: 24 dB/oct (true) or 12 dB/oct
+        int hpfSlope = 2;       // HPF slope: 0 = 6, 1 = 12, 2 = 24, 3 = 36 dB/oct
         bool keepLows = false;  // what the HPF removes skips the tubes and is added back clean
         float outputDb = 0.0f;  // -24..+12 dB
         bool autoGain = false;  // match output loudness to input (before the Output trim)
@@ -82,9 +82,20 @@ public:
         EqSettings preEq = [] { EqSettings e; e.lowShelf = false; e.bandOn[0] = false; e.bandOn[2] = false; return e; }();
                                 // pre-saturation EQ: band 2 = mid bell, band 4 = high shelf (1 and 3 unused)
         bool preEqLink = false; // mirror it after the tubes at opposite gain
-        ChannelStrip::Settings dry { ChannelStrip::kOffDb, {}, {} };   // dry path off by default
-        ChannelStrip::Settings wet { 0.0f, {}, {} };                   // wet path at unity
+        float inputDb = 0.0f;   // -24..+24 dB input trim, before everything (auto gain measures before it)
+        float mix = 100.0f;     // 0..100 %: linear crossfade dry (0) .. wet (100)
+        ChannelStrip::Settings dry { 0.0f, {}, {} }, wet { 0.0f, {}, {} };   // each path's EQ + comp (before the Mix)
     };
+
+    // Older settings had Dry/Wet levels (independent faders, summed). The same blend as a Mix
+    // position plus an overall gain: Mix = w / (w + d), gain = w + d (linear). d, w are linear gains.
+    static void legacyMix (float d, float w, float& mix, float& gainDb)
+    {
+        gainDb = 0.0f;
+        if (d <= 0.0f && w <= 0.0f) { mix = 100.0f; return; }
+        mix = 100.0f * w / (w + d);
+        gainDb = juce::Decibels::gainToDecibels (w + d);
+    }
 
     void prepare (double sampleRate, int maxBlock, int numChannels)
     {
@@ -106,12 +117,17 @@ public:
         dryOversampler->initProcessing ((size_t) maxBlock);
         jassert (std::abs (dryOversampler->getLatencyInSamples() - oversampler->getLatencyInSamples()) < 1.0e-6f);
         dryBuf.setSize (channels, maxBlock, false, true, true);
+        // each path's EQ + comp (the comps run oversampled; both strips always run, so the
+        // latency never changes and Dry and Wet stay aligned)
         dryStrip.prepare (sr, channels, maxBlock);
         wetStrip.prepare (sr, channels, maxBlock);
 
         ch.assign ((size_t) channels, Channel {});
-        hpf[0].stage.prepare (sr, maxBlock, Coherent::Kind::highPass);     // 24 dB/oct
-        hpf[1].stage.prepare (sr, maxBlock, Coherent::Kind::highPass12);   // 12 dB/oct
+        hpf[0].stage.prepare (sr, maxBlock, Coherent::Kind::highPass);      // 24 dB/oct
+        hpf[1].stage.prepare (sr, maxBlock, Coherent::Kind::highPass12);    // 12 dB/oct
+        hpf[2].stage.prepare (sr, maxBlock, Coherent::Kind::highPass6);     // 6 dB/oct
+        hpf[3].stage.prepare (sr, maxBlock, Coherent::Kind::highPass36a);   // 36 dB/oct = [3] then [4]
+        hpf[4].stage.prepare (sr, maxBlock, Coherent::Kind::highPass36b);
         keepBuf.setSize (channels, maxBlock, false, true, true);
         keepBuf2.setSize (channels, maxBlock, false, true, true);
         for (auto& c : ch)
@@ -149,6 +165,9 @@ public:
         smPre.reset (sr, 0.05);
         smPost.reset (sr, 0.05);
         smOut.reset (sr, 0.05);
+        smIn.reset (sr, 0.05);
+        smMixW.reset (sr, 0.03);
+        smMixD.reset (sr, 0.03);
         smDrive.reset (sr, 0.05);
         smDensity.reset (sr, 0.05);
         smEven.reset (sr, 0.05);
@@ -163,6 +182,7 @@ public:
         if (dryOversampler) dryOversampler->reset();
         dryStrip.reset();
         wetStrip.reset();
+        fastAuto = 0.0f;
         for (auto& c : ch)
         {
             c.hp1.reset(); c.hp2.reset(); c.bump.reset(); c.dip.reset();
@@ -196,6 +216,10 @@ public:
         smEven.setTargetValue (p.even);
         smOdd.setTargetValue (p.odd);
         smOut.setTargetValue (juce::Decibels::decibelsToGain (p.outputDb));
+        smIn.setTargetValue (juce::Decibels::decibelsToGain (p.inputDb));
+        const float m = juce::jlimit (0.0f, 1.0f, p.mix * 0.01f);
+        smMixW.setTargetValue (m);
+        smMixD.setTargetValue (1.0f - m);
     }
 
     void process (juce::dsp::AudioBlock<float>& block)
@@ -223,6 +247,18 @@ public:
         const int nch = juce::jmin ((int) block.getNumChannels(), channels);
         if (n == 0) return;
         measureLoudness (block, nch, n, true);   // input loudness, before anything touches it
+        if (firstBlock) smIn.setCurrentAndTargetValue (smIn.getTargetValue());
+        if (smIn.isSmoothing() || std::abs (smIn.getTargetValue() - 1.0f) > 1.0e-6f)
+        {
+            for (int c = 0; c < nch; ++c)   // input trim (auto gain still references the untrimmed input)
+            {
+                auto* x = block.getChannelPointer ((size_t) c);
+                auto g = smIn;
+                for (int i = 0; i < n; ++i) x[i] *= g.getNextValue();
+            }
+            smIn.skip (n);
+        }
+        storePeaks (block, nch, n, inPeak);      // input meter: what hits Glow after the Input trim
         followEnvelope (block, nch, n);          // envelope follower -> envOffset (Drive units)
 
         if (firstBlock)
@@ -233,30 +269,34 @@ public:
             smEven.setCurrentAndTargetValue (params.even);
             smOdd.setCurrentAndTargetValue (params.odd);
             smOut.setCurrentAndTargetValue (smOut.getTargetValue());
+            smMixW.setCurrentAndTargetValue (smMixW.getTargetValue());
+            smMixD.setCurrentAndTargetValue (smMixD.getTargetValue());
         }
+        for (auto* st : { &params.dry, &params.wet }) { st->mute = st->solo = false; st->audible = true; st->levelDb = 0.0f; }
+        // the Mix: a path it has fully faded out is switched off (no CPU, no phase-locking)
+        if (smMixD.getTargetValue() <= 1.0e-6f && ! smMixD.isSmoothing()) params.dry.levelDb = ChannelStrip::kOffDb;
+        if (smMixW.getTargetValue() <= 1.0e-6f && ! smMixW.isSmoothing()) params.wet.levelDb = ChannelStrip::kOffDb;
 
         // This block's filter plans. Both paths read the same plans, so every filter and its
         // all-pass twin move (and switch in/out) in lockstep.
         // Phase-locking costs time smear (an all-pass on the whole output), so filters only do it
         // when the other path is actually audible. Linked pairs never need it: an ordinary EQ
         // followed by its exact inverse has zero net phase shift by itself.
-        const bool anySoloEarly = params.dry.solo || params.wet.solo;
-        const bool dryHeard = dryStrip.isActive (params.dry) && ! params.dry.mute && (! anySoloEarly || params.dry.solo);
-        const bool wetHeard = wetStrip.isActive (params.wet) && ! params.wet.mute && (! anySoloEarly || params.wet.solo);
+        const bool dryHeard = dryStrip.isActive (params.dry), wetHeard = wetStrip.isActive (params.wet);
         // HPF: one stage per slope; switching slope glides one out and the other in (no click)
         {
             const bool on = params.hpfHz >= kHpfMinHz - 0.5f;
-            hpf[0].stage.plan (on && params.hpf24, params.hpfHz, 0.0f, 0.70710678f, n);
-            hpf[1].stage.plan (on && ! params.hpf24, params.hpfHz, 0.0f, 0.70710678f, n);
+            const int sl = juce::jlimit (0, 3, params.hpfSlope);
+            hpf[0].stage.plan (on && sl == 2, params.hpfHz, 0.0f, 0.70710678f, n);
+            hpf[1].stage.plan (on && sl == 1, params.hpfHz, 0.0f, 0.70710678f, n);
+            hpf[2].stage.plan (on && sl == 0, params.hpfHz, 0.0f, 0.70710678f, n);
+            hpf[3].stage.plan (on && sl == 3, params.hpfHz, 0.0f, 0.70710678f, n);
+            hpf[4].stage.plan (on && sl == 3, params.hpfHz, 0.0f, 0.70710678f, n);
         }
-        const bool hpfBusy = hpf[0].stage.busy() || hpf[1].stage.busy();
+        const bool hpfBusy = std::any_of (hpf.begin(), hpf.end(), [] (const Hpf& h) { return h.stage.busy(); });
         // Keep lows: fades in/out over 20 ms; only does anything while the HPF is in
         const bool keepWanted = params.keepLows && hpfBusy;
         const bool needKeep = keepWanted || keepMix > 0.0f;
-        // mute/solo (like a console: any solo mutes the un-soloed path; mute always wins)
-        const bool anySolo = params.dry.solo || params.wet.solo;
-        params.dry.audible = ! params.dry.mute && (! anySolo || params.dry.solo);
-        params.wet.audible = ! params.wet.mute && (! anySolo || params.wet.solo);
         // EQ band solo (Shift on an EQ point): only the path that EQ is on is heard
         const int bandSoloPath = eqSoloPath.load();
         if (bandSoloPath == 1) params.wet.audible = false;
@@ -269,8 +309,8 @@ public:
             for (auto& gdb : mirror.gain) gdb = -gdb;
             postEqF.plan (mirror, true, n, false);   // linked pair: ordinary filters, exact inverse
         }
-        const bool dryActive = dryStrip.isActive (params.dry);
-        wetStrip.planEq (params.wet, wetStrip.isActive (params.wet), n, dryHeard);
+        const bool dryActive = dryHeard;
+        wetStrip.planEq (params.wet, wetHeard, n, dryHeard);
         dryStrip.planEq (params.dry, dryActive, n, wetHeard);
 
         // dry path: copy of the input through the same oversampling filters + phase-match all-passes
@@ -280,7 +320,7 @@ public:
         const bool cleanChain = dryActive || needKeep;
         if (cleanChain)
         {
-            if (dryStale)   // fader just came up: start the dry filters from a clean state
+            if (dryStale)   // Mix just came off 100 %: start the dry filters from a clean state
             {
                 dryOversampler->reset();
                 for (auto& c : ch) for (auto& f : c.dryPhase) f.reset();
@@ -505,12 +545,33 @@ public:
             keepMix = kEnd;
         }
 
-        // channel strips, then sum (a muted dry path costs nothing)
+        // each path's EQ + comp, then the Mix (a dry path the Mix has faded out costs nothing)
         auto wetBlock = block.getSubsetChannelBlock (0, (size_t) nch);
         wetStrip.process (wetBlock, params.wet, dryStrip);
         dryStrip.process (dry, params.dry, wetStrip);
+        // Mix: linear crossfade (the paths are phase-locked copies, so equal-power would bump the middle)
+        {
+            const bool moving = smMixW.isSmoothing();
+            for (int c = 0; c < nch; ++c)
+            {
+                auto* w = wetBlock.getChannelPointer ((size_t) c);
+                auto* d = dry.getChannelPointer ((size_t) c);
+                auto gw = smMixW, gd = smMixD;
+                if (moving)
+                    for (int i = 0; i < n; ++i) { w[i] *= gw.getNextValue(); d[i] *= gd.getNextValue(); }
+                else
+                {
+                    const float a = gw.getTargetValue(), b = gd.getTargetValue();
+                    if (! juce::exactlyEqual (a, 1.0f)) for (int i = 0; i < n; ++i) w[i] *= a;
+                    if (! juce::exactlyEqual (b, 1.0f)) for (int i = 0; i < n; ++i) d[i] *= b;
+                }
+            }
+            smMixW.skip (n);
+            smMixD.skip (n);
+        }
         if (testSolo == 2) wetBlock.copyFrom (dry);    // measurement hook (render tool only)
         else if (testSolo != 1) wetBlock.add (dry);
+
 
         // auto gain: always measured (so switching it on lands on the right level at once),
         // applied only when enabled. Then the Output trim on top.
@@ -537,6 +598,7 @@ public:
         smOut.skip (n);
         autoMeter.store (params.autoGain ? autoApplied : 0.0f);
         applyBandSolo (block, nch, n);
+        storePeaks (block, nch, n, outPeak);     // output meter
         if ((sampleCount + n) % kEnvChunk == 0) updateEnvOffset();
     }
 
@@ -600,6 +662,19 @@ private:
     // Loudness for auto gain: K-weighted (ITU BS.1770 curve: ~+4 dB above 1.5 kHz, rolled off
     // below ~40 Hz), mean square over ~3 s. Only updated while both input and output are
     // actually playing, so silence, fades and muting both paths never drag the gain around.
+    // block peak per channel into a meter (keeps the highest until the UI takes it)
+    static void storePeaks (const juce::dsp::AudioBlock<float>& block, int nch, int n, std::array<std::atomic<float>, 2>& m)
+    {
+        for (int c = 0; c < juce::jmin (nch, 2); ++c)
+        {
+            const auto* x = block.getChannelPointer ((size_t) c);
+            float pk = 0.0f;
+            for (int i = 0; i < n; ++i) pk = juce::jmax (pk, std::abs (x[i]));
+            if (nch == 1) { if (pk > m[1].load()) m[1].store (pk); }
+            if (pk > m[(size_t) c].load()) m[(size_t) c].store (pk);
+        }
+    }
+
     void measureLoudness (const juce::dsp::AudioBlock<float>& block, int nch, int n, bool isInput)
     {
         double sum = 0.0;
@@ -620,10 +695,15 @@ private:
         st = aShort * st + (1.0f - aShort) * ms;
         if (isInput) { inBlock = ms; return; }
 
+        // Auto Gain re-matches quickly (0.3 s window instead of 3 s) for a second after you turn a
+        // knob that changes the level (the editor asks for it), so it doesn't lag behind the knob.
+        // Host automation doesn't trigger it, so automated moves keep the slow, steady match.
+        if (autoRematch.exchange (false)) fastAuto = 1.0f;
+        fastAuto = juce::jmax (0.0f, fastAuto - (float) n / (float) sr);
         constexpr float kGate = 1.0e-7f;   // -70 dB: below this, hold
         if (inShort > kGate && outShort > kGate)
         {
-            const float aLong = std::exp (-(float) n / (3.0f * (float) sr));
+            const float aLong = std::exp (-(float) n / ((fastAuto > 0.0f ? 0.3f : 3.0f) * (float) sr));
             if (inLong <= 0.0f || outLong <= 0.0f) { inLong = inShort; outLong = outShort; }   // first sound: start there
             inLong = aLong * inLong + (1.0f - aLong) * inBlock;
             outLong = aLong * outLong + (1.0f - aLong) * ms;
@@ -712,7 +792,7 @@ private:
     }
 
 public:
-    // UI: solo an EQ band (path 1 = dry strip EQ, 2 = wet strip EQ, 3 = pre EQ; band 0..3), or -1 = off
+    // UI: solo an EQ band (path 1 = Dry EQ, 2 = Wet EQ, 3 = pre EQ; band 0..3), or -1 = off
     void setEqSolo (int path, int band) { eqSoloBand = band; eqSoloPath = band < 0 ? 0 : path; }
 private:
 
@@ -735,14 +815,22 @@ private:
 
 public:
     // meters for the UI (call from the message thread)
-    float takeDryPeak() { return dryStrip.takePeak(); }
-    float takeWetPeak() { return wetStrip.takePeak(); }
     float dryGainReductionDb() const { return dryStrip.getGainReductionDb(); }
     float wetGainReductionDb() const { return wetStrip.getGainReductionDb(); }
     float dryMakeupDb() const { return dryStrip.getMakeupDb(); }
     float wetMakeupDb() const { return wetStrip.getMakeupDb(); }
+    // input (after the Input trim) and output peaks, per channel, since the last call
+    float takeInPeak (int c) { return inPeak[(size_t) (c & 1)].exchange (0.0f); }
+    float takeOutPeak (int c) { return outPeak[(size_t) (c & 1)].exchange (0.0f); }
 private:
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smPre { 1.0f }, smPost { 1.0f }, smOut { 1.0f };
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smPre { 1.0f }, smPost { 1.0f }, smOut { 1.0f }, smIn { 1.0f };
+    juce::SmoothedValue<float> smMixW { 1.0f }, smMixD { 0.0f };   // Mix crossfade gains
+    std::array<std::atomic<float>, 2> inPeak {}, outPeak {};     // meters (UI takes them)
+    float fastAuto = 0.0f;        // seconds left of quick Auto Gain re-matching
+    std::atomic<bool> autoRematch { false };
+public:
+    void requestAutoRematch() { autoRematch.store (true); }   // UI: a level-changing knob is being turned
+private:
     juce::SmoothedValue<float> smDrive, smDensity, smEven, smOdd;
     bool firstBlock = true;
     // user HPF, one per slope: plan, wet-path filter, dry-path all-pass, and the pair Keep lows uses
@@ -753,7 +841,7 @@ private:
         Coherent::Allpass ap, keepAp;
         void reset() { main.reset(); keepMain.reset(); ap.reset(); keepAp.reset(); stage.snapNext(); }
     };
-    std::array<Hpf, 2> hpf;   // [0] 24 dB/oct, [1] 12 dB/oct
+    std::array<Hpf, 5> hpf;   // [0] 24, [1] 12, [2] 6 dB/oct; [3] + [4] in series = 36 dB/oct
     juce::AudioBuffer<float> keepBuf, keepBuf2;   // Keep lows: the clean lows under the HPF (+ scratch)
     float keepMix = 0.0f;
     bool keepStale = true;
@@ -767,7 +855,7 @@ private:
     float envLin = 0.0f, envAvgDb = -100.0f, envOffset = 0.0f;
     juce::SmoothedValue<float> smEnvAmt;
     std::atomic<float> modDrive { 25.0f };
-    bool dryStale = true;     // dry filters skipped while the Dry fader is off
+    bool dryStale = true;     // dry filters skipped while the Mix is at 100 %
     std::array<std::array<Biquad, 2>, 2> kIn, kOut;   // K-weighting for auto gain (in / out, per channel)
     float inShort = 0.0f, outShort = 0.0f, inBlock = 0.0f, inLong = 0.0f, outLong = 0.0f;
     float autoGainDb = 0.0f, autoApplied = 0.0f;

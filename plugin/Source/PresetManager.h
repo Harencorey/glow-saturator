@@ -23,6 +23,9 @@ public:
 
     explicit PresetManager (juce::AudioProcessorValueTreeState& s) : state (s) {}
 
+    // set by the processor: converts values from older preset files (Dry/Wet -> Mix, Keep Lows)
+    std::function<void (std::map<juce::String, float>&)> upgrade;
+
     static juce::File userFolder()
     {
        #if JUCE_MAC
@@ -48,13 +51,15 @@ public:
                                     { "autoGain", 1 },
                                     { "wetCompOn", 1 }, { "wetCompInput", 8 }, { "wetCompRatio", 2 }, { "wetCompAttack", 5 },
                                     { "wetCompRelease", 120 }, { "wetCompAuto", 1 } } },
+            // parallel blends: the same Dry/Wet balance as the old Dry -6 / Wet 0 and Dry 0 / Wet -6 faders
+            // (Auto Gain takes care of the overall level, as before)
             { "Bass Weight", { { "drive", 45 }, { "even", 80 }, { "odd", 30 }, { "density", 60 },
-                               { "dryLevel", -6 }, { "autoGain", 1 } } },
-            { "Parallel Drum Smash", { { "drive", 70 }, { "odd", 65 }, { "hpf", 40 }, { "dryLevel", 0 }, { "wetLevel", -6 },
+                               { "mix", 66.6f }, { "autoGain", 1 } } },
+            { "Parallel Drum Smash", { { "drive", 70 }, { "odd", 65 }, { "hpf", 40 }, { "keepLows", 0 }, { "mix", 33.4f },
                                        { "autoGain", 1 }, { "wetCompOn", 1 }, { "wetCompInput", 18 }, { "wetCompRatio", 4 },
                                        { "wetCompAttack", 3 }, { "wetCompRelease", 150 }, { "wetCompColour", 1 },
                                        { "wetCompAuto", 1 } } },
-            { "Lo-Fi Crush", { { "drive", 90 }, { "odd", 85 }, { "density", 80 }, { "hpf", 150 }, { "autoGain", 1 },
+            { "Lo-Fi Crush", { { "drive", 90 }, { "odd", 85 }, { "density", 80 }, { "hpf", 150 }, { "keepLows", 0 }, { "autoGain", 1 },
                                { "wetEqOn", 1 }, { "wetEqFreq4", 6000 }, { "wetEqGain4", -8 },
                                { "wetCompOn", 1 }, { "wetCompInput", 12 }, { "wetCompRatio", 7 }, { "wetCompColour", 2 },
                                { "wetCompMix", 60 }, { "wetCompAuto", 1 } } },
@@ -108,6 +113,7 @@ public:
             if (xml == nullptr || ! xml->hasTagName ("GlowPreset")) return false;
             for (auto* e : xml->getChildWithTagNameIterator ("PARAM"))
                 values[e->getStringAttribute ("id")] = (float) e->getDoubleAttribute ("value");
+            if (upgrade) upgrade (values);   // files saved before the Mix knob
         }
         else
         {
