@@ -138,43 +138,6 @@ private:
     std::unique_ptr<juce::ParameterAttachment> attachment;
 };
 
-// Vertical peak meter, -60..+6 dBFS, with a falling bar and a short peak hold.
-class LevelMeter : public juce::Component, public juce::SettableTooltipClient
-{
-public:
-    void push (float peakLinear)
-    {
-        const float db = juce::Decibels::gainToDecibels (peakLinear, -100.0f);
-        level = db > level ? db : level - 1.2f;            // ~36 dB/s fall at 30 Hz refresh
-        if (db >= hold) { hold = db; holdTicks = 45; }      // ~1.5 s hold
-        else if (--holdTicks < 0) hold -= 1.2f;
-        repaint();
-    }
-
-    void paint (juce::Graphics& g) override
-    {
-        auto r = getLocalBounds().toFloat();
-        g.setColour (juce::Colour (0xff0a0908));
-        g.fillRoundedRectangle (r, 1.5f);
-        auto toY = [&r] (float db) { return r.getBottom() - r.getHeight() * juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 66.0f); };
-        const float top = toY (level);
-        // green -> yellow (-12 dB) -> red (0 dB)
-        juce::ColourGradient grad (GlowLookAndFeel::green, 0.0f, r.getBottom(), GlowLookAndFeel::red, 0.0f, toY (0.0f), false);
-        grad.addColour (48.0 / 60.0, GlowLookAndFeel::yellow);
-        g.setGradientFill (grad);
-        g.fillRect (r.withTop (top).reduced (1.0f, 0.0f));
-        if (hold > -60.0f)
-        {
-            g.setColour (hold > 0.0f ? GlowLookAndFeel::red : GlowLookAndFeel::text);
-            g.fillRect (r.getX() + 1.5f, toY (hold) - 1.0f, r.getWidth() - 3.0f, 2.0f);
-        }
-    }
-
-private:
-    float level = -100.0f, hold = -100.0f;
-    int holdTicks = 0;
-};
-
 // Horizontal stereo peak meter (L above R), -48..+6 dBFS, green / yellow (-12) / red (-3),
 // a short peak hold, and a readout of the highest peak (red once it has gone over 0 dBFS).
 // Click it to reset the readout. The OUT meter also prints the dB scale under its bars.
@@ -186,15 +149,20 @@ public:
     void push (float peakL, float peakR)
     {
         const float pk[2] { peakL, peakR };
+        bool changed = false;
         for (int c = 0; c < 2; ++c)
         {
             const float db = juce::Decibels::gainToDecibels (pk[c], -100.0f);
-            level[c] = db > level[c] ? db : level[c] - 1.2f;          // ~36 dB/s fall at 30 Hz
-            if (db >= hold[c]) { hold[c] = db; holdTicks[c] = 45; }   // ~1.5 s hold
-            else if (--holdTicks[c] < 0) hold[c] -= 1.2f;
+            const float l0 = level[c], h0 = hold[c];
+            level[c] = juce::jmax (-100.0f, db > level[c] ? db : level[c] - 1.2f);   // ~36 dB/s fall at 30 Hz
+            if (db >= hold[c]) { hold[c] = db; holdTicks[c] = 45; }                  // ~1.5 s hold
+            else if (--holdTicks[c] < 0) { holdTicks[c] = 0; hold[c] = juce::jmax (-100.0f, hold[c] - 1.2f); }
+            if (std::abs (level[c] - l0) > 0.05f || std::abs (hold[c] - h0) > 0.05f) changed = true;
+            const float m0 = maxDb;
             maxDb = juce::jmax (maxDb, db);
+            if (maxDb > m0 + 0.05f) changed = true;
         }
-        repaint();
+        if (changed) repaint();   // silence costs nothing
     }
     void mouseDown (const juce::MouseEvent&) override { maxDb = -100.0f; repaint(); }
 

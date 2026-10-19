@@ -358,7 +358,7 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     hpfP = s.getRawParameterValue ("hpf");
     body.addAndMakeVisible (inputExpand);
     inputExpand.setTooltip ("Show / hide the pre-saturation EQ (the window gets wider)");
-    inputExpand.onClick = [this] { setExpanded (! inputOpen, false); };
+    inputExpand.onClick = [this] { setExpanded (! inputOpen); };
     keepLows.setup (body, s, "keepLows", "KEEP LOWS");
     keepLows.button.getProperties().set ("lamp", true);
     keepLows.button.setTooltip ("KEEP LOWS: everything the high-pass removes skips the tubes and comes back clean, so the low "
@@ -408,6 +408,9 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     mix.popupValue();
     mix.tip ("MIX: dry/wet. 100% = all saturated, 0% = all clean (both paths stay phase-locked, so any blend is solid).");
     mixP = s.getRawParameterValue ("mix");
+    // turning a knob that changes the level makes Auto Gain re-match quickly (not host automation)
+    for (auto* k : { &input, &drive, &density, &even, &odd, &mix })
+        k->slider.onValueChange = [this, sl = &k->slider] { if (sl->isMouseButtonDown()) proc.nudgeAutoGain(); };
     setupPath (dryMods, "dry");
     setupPath (wetMods, "wet");
     body.addAndMakeVisible (inMeter);
@@ -468,6 +471,7 @@ GlowEditor::GlowEditor (GlowProcessor& p)
 
 GlowEditor::~GlowEditor()
 {
+    PopupMenu::dismissAllActiveMenus();   // the size menu, if it's open
     stopTimer();
     panel.reset();
     setLookAndFeel (nullptr);
@@ -545,10 +549,9 @@ void GlowEditor::closePanel()
     }
 }
 
-void GlowEditor::setExpanded (bool in, bool mx)
+void GlowEditor::setExpanded (bool in)
 {
     inputOpen = proc.uiInputOpen = in;
-    proc.uiMixerOpen = mx;
     applyLayout();
 }
 
@@ -667,7 +670,7 @@ void GlowEditor::paint (Graphics& g)
 juce::Rectangle<int> GlowEditor::designSize() const
 {
     // one height in every view (more room than before); expanding a section only adds width
-    const int w = kMargin + (inputOpen ? kInputOpenW : kInputW) + kGap + kCentreW + kGap + (mixerOpen ? kMixOpenW : kMixW) + kMargin;
+    const int w = kMargin + (inputOpen ? kInputOpenW : kInputW) + kGap + kCentreW + kGap + kMixW + kMargin;
     const int h = kMainH + (panel != nullptr ? drawerH() : 0);
     return { 0, 0, w, h };
 }
@@ -923,7 +926,7 @@ void GlowEditor::applyLayout()
 
     leftCard = { kMargin, top, inputOpen ? kInputOpenW : kInputW, kCardH };
     centreCard = { leftCard.getRight() + kGap, top, kCentreW, kCardH };
-    mixCard = { centreCard.getRight() + kGap, top, mixerOpen ? kMixOpenW : kMixW, kCardH };
+    mixCard = { centreCard.getRight() + kGap, top, kMixW, kCardH };
 
     auto knobAt = [] (Knob& k, Point<int> c, int size, int valueH, Rectangle<int> label)
     {
@@ -1012,8 +1015,18 @@ void GlowEditor::applyLayout()
 
     lead.setBounds (0, 0, W, mainH);
     body.setBounds (ds);
-    body.setTransform (AffineTransform::scale (uiScale));
-    const int w = roundToInt ((float) ds.getWidth() * uiScale), h = roundToInt ((float) ds.getHeight() * uiScale);
+    // the chosen interface size, made smaller if the window wouldn't fit on this screen
+    float scale = uiScale;
+    {
+        auto& displays = Desktop::getInstance().getDisplays();
+        const auto* d = isShowing() ? displays.getDisplayForRect (getScreenBounds()) : displays.getPrimaryDisplay();
+        if (d != nullptr)
+            scale = jmin (scale, (float) d->userBounds.getWidth() * 0.96f / (float) ds.getWidth(),
+                                 (float) d->userBounds.getHeight() * 0.90f / (float) ds.getHeight());
+        scale = jmax (0.5f, scale);
+    }
+    body.setTransform (AffineTransform::scale (scale));
+    const int w = roundToInt ((float) ds.getWidth() * scale), h = roundToInt ((float) ds.getHeight() * scale);
     if (getWidth() != w || getHeight() != h) setSize (w, h);
     body.repaint();
 }

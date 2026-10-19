@@ -5,11 +5,10 @@
 #include "PresetBar.h"
 
 // Main window. Compact by default:
-//   HPF  |  tube meter, EVEN / DENSITY / ODD, DRIVE with ENV AMOUNT / ENV SPEED  |  MIX + master EQ/COMP
-//   with INPUT / OUTPUT / AUTO along the bottom right.
-// INPUT expands (to the left part of the window) into the full pre-saturation EQ, MIX expands into the
-// Dry/Wet mixer; each widens the window instead of covering anything. The EQ / COMP editors open in a
-// drawer under the main controls.
+//   HPF  |  tube meter, EVEN / DENSITY / ODD, DRIVE with ENV AMOUNT / ENV SPEED  |  DRY EQ/COMP, MIX, WET EQ/COMP
+//   with IN / OUT meters and INPUT / OUTPUT / AUTO along the bottom.
+// The HPF card expands (widening the window, covering nothing) into the full pre-saturation EQ.
+// The EQ / COMP editors open in a drawer under the main controls.
 //
 // Everything is laid out in fixed "design" units and the whole body is scaled by the interface size
 // (right-click the background), so it stays crisp at any size.
@@ -69,7 +68,7 @@ private:
     void paintLead (juce::Graphics&);
 
     // view state: which sections are open, interface size (kept in the session, not parameters)
-    void setExpanded (bool input, bool mixer);
+    void setExpanded (bool input);
     void applyLayout();      // design size -> window size, and lays everything out
     void showSizeMenu();
     juce::Rectangle<int> designSize() const;
@@ -78,11 +77,10 @@ private:
     GlowLookAndFeel lnf;
     Body body;
     bool inputOpen = false;
-    static constexpr bool mixerOpen = false;   // no expanded mixer any more: Mix + master only
     float uiScale = 0.9f;
     // design-unit geometry (scaled by uiScale): one height for every view, sections add width
     static constexpr int kMargin = 14, kGap = 12, kTop = 54, kCardH = 312, kMainH = 446,
-                         kInputW = 240, kInputOpenW = 548, kCentreW = 440, kMixW = 452, kMixOpenW = 452;
+                         kInputW = 240, kInputOpenW = 548, kCentreW = 440, kMixW = 452;
 
     // INPUT
     Knob hpf;

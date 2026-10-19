@@ -159,6 +159,27 @@ int main()
                    "old session: the Wet comp stays on");
             check (std::abs (v ("inputGain")) < 1e-6f, "old session: input 0 dB");
         }
+        {   // a session saved by this version comes back exactly: no legacy conversion on reload
+            GlowProcessor a;
+            auto setp = [&a] (const char* id, float value) { auto* pa = a.apvts.getParameter (id); pa->setValueNotifyingHost (pa->convertTo0to1 (value)); };
+            setp ("mix", 50.0f); setp ("output", 3.0f); setp ("keepLows", 0.0f); setp ("inputGain", 5.0f);
+            setp ("wetCompOn", 1.0f); setp ("dryEqGain2", -4.0f); setp ("hpf", 150.0f);
+            juce::MemoryBlock mbA; a.getStateInformation (mbA);
+            GlowProcessor b; b.setStateInformation (mbA.getData(), (int) mbA.getSize());
+            bool same = true;
+            for (auto* prm : a.getParameters())
+                if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (prm))
+                    same = same && std::abs (rp->getValue() - b.apvts.getParameter (rp->getParameterID())->getValue()) < 1.0e-6f;
+            check (same, "session saved by this version loads back unchanged");
+            bool noOld = true;
+            for (auto* prm : a.getParameters())
+                if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (prm))
+                {
+                    const auto id = rp->getParameterID();
+                    noOld = noOld && ! (id == "dryLevel" || id == "wetLevel" || id.endsWith ("Mute") || id.endsWith ("Solo") || id.startsWith ("master"));
+                }
+            check (noOld, "removed parameters are really gone (no dead automation lanes)");
+        }
         {   // a default v0.1.26 session (Dry Off): Mix 100 %, Output unchanged
             auto t = oldSession ([&] (juce::XmlElement& x) { addParam (x, "dryLevel", -60.0); addParam (x, "wetLevel", 0.0); });
             check (std::abs (t->apvts.getRawParameterValue ("mix")->load() - 100.0f) < 1e-3f

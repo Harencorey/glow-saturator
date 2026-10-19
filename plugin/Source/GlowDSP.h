@@ -207,11 +207,6 @@ public:
 
     void setParams (const Params& p)
     {
-        // Auto Gain re-matches quickly (0.3 s window instead of 3 s) for a moment after a knob
-        // that changes the level moves, so turning Input or Drive doesn't leave it lagging
-        const float knobs[] { p.inputDb, p.drive, p.density, p.even, p.odd, p.mix };
-        for (size_t k = 0; k < std::size (knobs); ++k)
-            if (std::abs (knobs[k] - lastKnobs[k]) > 1.0e-3f) { lastKnobs[k] = knobs[k]; fastAuto = 1.0f; }
         params = p;
         smDrive.setTargetValue (p.drive);
         smDensity.setTargetValue (p.density);
@@ -693,11 +688,15 @@ private:
         st = aShort * st + (1.0f - aShort) * ms;
         if (isInput) { inBlock = ms; return; }
 
+        // Auto Gain re-matches quickly (0.3 s window instead of 3 s) for a second after you turn a
+        // knob that changes the level (the editor asks for it), so it doesn't lag behind the knob.
+        // Host automation doesn't trigger it, so automated moves keep the slow, steady match.
+        if (autoRematch.exchange (false)) fastAuto = 1.0f;
+        fastAuto = juce::jmax (0.0f, fastAuto - (float) n / (float) sr);
         constexpr float kGate = 1.0e-7f;   // -70 dB: below this, hold
         if (inShort > kGate && outShort > kGate)
         {
             const float aLong = std::exp (-(float) n / ((fastAuto > 0.0f ? 0.3f : 3.0f) * (float) sr));
-            fastAuto = juce::jmax (0.0f, fastAuto - (float) n / (float) sr);
             if (inLong <= 0.0f || outLong <= 0.0f) { inLong = inShort; outLong = outShort; }   // first sound: start there
             inLong = aLong * inLong + (1.0f - aLong) * inBlock;
             outLong = aLong * outLong + (1.0f - aLong) * ms;
@@ -820,8 +819,11 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> smPre { 1.0f }, smPost { 1.0f }, smOut { 1.0f }, smIn { 1.0f };
     juce::SmoothedValue<float> smMixW { 1.0f }, smMixD { 0.0f };   // Mix crossfade gains
     std::array<std::atomic<float>, 2> inPeak {}, outPeak {};     // meters (UI takes them)
-    float lastKnobs[6] { -1.0e9f, -1.0e9f, -1.0e9f, -1.0e9f, -1.0e9f, -1.0e9f };
     float fastAuto = 0.0f;        // seconds left of quick Auto Gain re-matching
+    std::atomic<bool> autoRematch { false };
+public:
+    void requestAutoRematch() { autoRematch.store (true); }   // UI: a level-changing knob is being turned
+private:
     juce::SmoothedValue<float> smDrive, smDensity, smEven, smOdd;
     bool firstBlock = true;
     // user HPF, one per slope: plan, wet-path filter, dry-path all-pass, and the pair Keep lows uses

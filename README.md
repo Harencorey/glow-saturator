@@ -65,14 +65,14 @@ presets, **A/B** and **undo/redo**. Right-click the background for the interface
 | **Mix** | Dry/wet: 100 % = all saturated, 0 % = all clean. A linear crossfade (the two paths are phase-locked copies, so a blend never thins out or bumps the level in the middle). At 100 % the clean path is switched off completely. |
 | **DRY / WET EQ, COMP** | Each path's own EQ and compressor, before the Mix: DRY (left) works on the clean path, WET (right) on the saturated one. Click the lamp (or double-click the button) to switch one on/off; click the rest to open its editor in the drawer under the main window. The arrows between them swap that path's order (top runs first). |
 | **IN / OUT meters** | Peak meters, L and R: IN is after the Input knob (what hits the tubes), OUT is the plug-in's output. The number is the highest peak so far (red once it has gone over 0 dBFS); click a meter to reset it. |
-| **Input** | −24 to +24 dB, before everything: push it to drive the tubes harder. Auto Gain measures the input before this trim, so with Auto on, Input changes the drive, not the level: after you move Input (or Drive, Density, Even, Odd, Mix) it re-matches in about half a second, then goes back to its slow, steady 3 s average. |
+| **Input** | −24 to +24 dB, before everything: push it to drive the tubes harder. Auto Gain measures the input before this trim, so with Auto on, Input changes the drive, not the level: after you move Input (or Drive, Density, Even, Odd, Mix) it re-matches in about half a second, then goes back to its slow, steady 3 s average. (Only knob turns in the window do this; host automation keeps the slow match, so automated moves never make it ride the level.) |
 | **Output** | −24 to +12 dB trim, the last thing in the chain. |
 | **Auto** | Master auto gain (note: Drive 0 is not a bypass. The tube voicing EQ stays in, about +1.6 dB around 100 Hz, so AUTO typically shows −0.1 to −1 dB there, more on bass-heavy material): keeps the output as loud as the input (K-weighted, like LUFS, averaged over ~3 s), so Drive/EQ/comp moves don't fool your ears and bypass A/Bs are fair. The AUTO tooltip shows what it's applying (±18 dB max). It holds through silence and only updates while audio is playing. Output trims on top. It's slow on purpose: it matches loudness, it doesn't ride the level. |
 
 The EQ / COMP editors (Dry and Wet):
 Signal order in each path: EQ → Comp (with its Mix), or Comp → EQ when flipped, then the Mix.
 
-Older sessions and presets load with the same sound: their Dry/Wet balance becomes the matching Mix setting (plus Output, unless Auto Gain was on), with their EQ / comp settings unchanged.
+Older sessions and presets load with the same sound: their Dry/Wet balance becomes the matching Mix setting (plus Output, unless Auto Gain was on), with their EQ / comp settings unchanged. Automation written on the old Dry/Wet faders or Mute/Solo has nothing to drive any more (those parameters are gone); an old session that had both paths muted loads as 100 % Wet.
 
 At the default settings (Even, Odd and Density at 50 %, HPF off, pre-sat EQ off, Mix 100 %, EQs and comps off) the output is bit-identical to v0.1.5, the BB Tubes-matched version.
 
