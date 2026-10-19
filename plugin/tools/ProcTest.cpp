@@ -205,6 +205,17 @@ int main()
             auto* sp = fresh.apvts.getParameter ("hpfSlopeSel");
             check (sp->getText (sp->convertTo0to1 (0.0f), 20) == "6 dB/oct" && sp->getText (sp->convertTo0to1 (3.0f), 20) == "36 dB/oct",
                    "HPF slope offers 6 / 12 / 24 / 36 dB/oct");
+            check (std::lround (fresh.apvts.getRawParameterValue ("driveType")->load()) == 0, "new instance: drive type TUBE");
+            auto tOld = oldSession ([&] (juce::XmlElement& x)
+            {
+                juce::Array<juce::XmlElement*> drop;
+                for (auto* e : x.getChildWithTagNameIterator ("PARAM")) if (e->getStringAttribute ("id") == "driveType") drop.add (e);
+                for (auto* e : drop) x.removeChildElement (e, true);
+            });
+            check (std::lround (tOld->apvts.getRawParameterValue ("driveType")->load()) == 0, "old session (no drive type) loads as TUBE");
+            auto* dtp = fresh.apvts.getParameter ("driveType");
+            check (dtp->getText (dtp->convertTo0to1 (3.0f), 20) == "Diode" && dtp->getText (dtp->convertTo0to1 (1.0f), 20) == "Iron"
+                   && std::lround (dtp->convertFrom0to1 (1.0f)) == 3, "drive types: Tube / Iron / Tape / Diode");
             auto* op = fresh.apvts.getParameter ("output");
             check (std::abs (op->getValue() - 0.5f) < 1e-6f && std::abs (op->convertFrom0to1 (1.0f) - 24.0f) < 1e-4f,
                    "Output: -24..+24 dB, 0 dB at the middle (knob straight up)");

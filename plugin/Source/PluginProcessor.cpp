@@ -8,6 +8,7 @@ GlowProcessor::GlowProcessor()
       apvts (*this, &undoManager, "GLOW", createLayout())
 {
     pDrive = apvts.getRawParameterValue ("drive");
+    pDriveType = apvts.getRawParameterValue ("driveType");
     pEven = apvts.getRawParameterValue ("even");
     pOdd = apvts.getRawParameterValue ("odd");
     pDensity = apvts.getRawParameterValue ("density");
@@ -103,6 +104,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
     AudioProcessorValueTreeState::ParameterLayout l;
     // Drive is the macro; Even/Odd trim each side of it (50 % = as measured on the reference)
     addFloat (l, "drive", "Drive", { 0.0f, 100.0f, 0.01f }, 25.0f, [] (float v, int) { return String (v, 1); });
+    // drive type: which saturation engine Drive pushes (switching crossfades, 25 ms)
+    l.add (std::make_unique<AudioParameterChoice> (ParameterID { "driveType", 1 }, "Drive Type",
+               StringArray { "Tube", "Iron", "Tape", "Diode" }, 0));
     addFloat (l, "even", "Even", { 0.0f, 100.0f, 0.1f }, 50.0f, pct);
     addFloat (l, "odd", "Odd", { 0.0f, 100.0f, 0.1f }, 50.0f, pct);
     addFloat (l, "density", "Density", { 0.0f, 100.0f, 0.1f }, 50.0f, pct);
@@ -264,6 +268,7 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
 
     GlowDSP::Params p;
     p.drive = pDrive->load();
+    p.type = juce::jlimit (0, 3, (int) std::lround (pDriveType->load()));
     p.even = pEven->load();
     p.odd = pOdd->load();
     p.density = pDensity->load();
