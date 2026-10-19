@@ -31,8 +31,6 @@ GlowProcessor::GlowProcessor()
 void GlowProcessor::StripParams::bind (juce::AudioProcessorValueTreeState& s, const juce::String& p)
 {
     auto get = [&s, &p] (const juce::String& id) { auto* v = s.getRawParameterValue (p + id); jassert (v != nullptr); return v; };
-    auto opt = [&s, &p] (const juce::String& id) { return s.getRawParameterValue (p + id); };   // master: none
-    level = opt ("Level");
     eqOn = get ("EqOn");
     for (int b = 0; b < 4; ++b)
     {
@@ -53,14 +51,12 @@ void GlowProcessor::StripParams::bind (juce::AudioProcessorValueTreeState& s, co
     hpf = get ("CompHpf");
     mix = get ("CompMix");
     compAuto = get ("CompAuto");
-    mute = opt ("Mute");
-    solo = opt ("Solo");
     compFirst = get ("CompFirst");
 }
 
 void GlowProcessor::StripParams::read (ChannelStrip::Settings& st) const
 {
-    st.levelDb = level != nullptr ? level->load() : 0.0f;
+    st.levelDb = 0.0f;   // each path's level is the Mix's job
     st.eq.on = eqOn->load() > 0.5f;
     for (int b = 0; b < 4; ++b)
     {
@@ -79,8 +75,6 @@ void GlowProcessor::StripParams::read (ChannelStrip::Settings& st) const
     st.comp.detectorHpf = hpf->load() > 0.5f;
     st.comp.mix = mix->load();
     st.comp.autoMakeup = compAuto->load() > 0.5f;
-    st.mute = mute != nullptr && mute->load() > 0.5f;
-    st.solo = solo != nullptr && solo->load() > 0.5f;
     st.compFirst = compFirst->load() > 0.5f;
 }
 
@@ -169,21 +163,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqBand4On", 1 }, "Pre EQ High On", true));
 
     // each path's EQ + compressor (before the Mix)
-    auto levelText = [db] (float v, int len) { return v <= ChannelStrip::kOffDb + 0.05f ? String ("Off") : db (v, len); };
     auto ms = [] (float v, int) { return v < 1.0f ? String (v, 2) + " ms" : v < 1000.0f ? String (v, v < 10.0f ? 1 : 0) + " ms" : String (v / 1000.0f, 2) + " s"; };
     auto qText = [] (float v, int) { return String (v, 2); };
     for (const String p : { "dry", "wet" })
     {
-        const bool master = p == "master";
-        const String P = p == "dry" ? "Dry " : p == "wet" ? "Wet " : "Master ";
+        const String P = p == "dry" ? "Dry " : "Wet ";
         auto id = [&p] (const String& s) { return (p + s).toStdString(); };
-
-        if (! master)   // the strips' faders: trims after the Mix (the master has no fader)
-        {
-            NormalisableRange<float> lvl (ChannelStrip::kOffDb, 6.0f, 0.01f);
-            lvl.setSkewForCentre (-12.0f);
-            addFloat (l, id ("Level").c_str(), (P + "Level").toRawUTF8(), lvl, 0.0f, levelText);
-        }
 
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "EqOn", 1 }, P + "EQ On", false));
         const float defF[4] { 80.0f, 400.0f, 2500.0f, 10000.0f }, defQ[4] { 0.7f, 1.0f, 1.0f, 0.7f };
@@ -217,11 +202,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
         l.add (std::make_unique<AudioParameterChoice> (ParameterID { p + "CompColour", 1 }, P + "Comp Colour", colours, 0));
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompHpf", 1 }, P + "Comp Detector HPF", false));
         // parallel compression: blend of uncompressed signal (same path, same phase)
-        if (! master)
-        {
-            l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "Mute", 1 }, P + "Mute", false));
-            l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "Solo", 1 }, P + "Solo", false));
-        }
         // signal order inside the path: EQ -> Comp (default) or Comp -> EQ
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompFirst", 1 }, P + "Comp Before EQ", false));
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompAuto", 1 }, P + "Comp Auto Makeup", false));
@@ -333,7 +313,6 @@ void GlowProcessor::getStateInformation (juce::MemoryBlock& dest)
     if (auto xml = apvts.copyState().createXml())
     {
         xml->setAttribute ("uiInput", uiInputOpen ? 1 : 0);
-        xml->setAttribute ("uiMixer", uiMixerOpen ? 1 : 0);
         xml->setAttribute ("uiScale", (double) uiScale);
         copyXmlToBinary (*xml, dest);
     }
@@ -345,7 +324,6 @@ void GlowProcessor::setStateInformation (const void* data, int size)
         if (xml->hasTagName (apvts.state.getType()))
         {
             uiInputOpen = xml->getIntAttribute ("uiInput", 0) != 0;
-            uiMixerOpen = xml->getIntAttribute ("uiMixer", 0) != 0;
             uiScale = (float) juce::jlimit (0.7, 1.5, xml->getDoubleAttribute ("uiScale", 0.9));
             xml->removeAttribute ("uiInput"); xml->removeAttribute ("uiMixer"); xml->removeAttribute ("uiScale");
             auto tree = juce::ValueTree::fromXml (*xml);
@@ -378,7 +356,8 @@ void GlowProcessor::upgradeLegacyValues (std::map<juce::String, float>& v)
     const bool hasFaders = v.count ("dryLevel") || v.count ("wetLevel");
     const bool hasMix = v.find ("mix") != v.end();
     // drop what no longer exists (the faders/mute/solo are folded in below; a master EQ/comp
-    // only existed in test builds)
+    // only existed in test builds). Sessions and presets saved by this version contain none of
+    // these, so they pass through untouched.
     auto get = [&v] (const char* id, float def) { auto it = v.find (id); return it != v.end() ? it->second : def; };
     const float dryDb = get ("dryLevel", ChannelStrip::kOffDb), wetDb = get ("wetLevel", 0.0f);
     const bool dryMute = get ("dryMute", 0.0f) > 0.5f, wetMute = get ("wetMute", 0.0f) > 0.5f;

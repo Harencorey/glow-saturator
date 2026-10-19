@@ -39,8 +39,9 @@ public:
 
     juce::UndoManager undoManager;   // the editor's Undo / Redo (parameter changes)
     // editor view state, kept with the session (not parameters, not undoable): open sections + size
-    bool uiInputOpen = false, uiMixerOpen = false;
-    float uiScale = 0.9f;
+    // the editor's view (saved with the session; hosts may restore it off the message thread)
+    std::atomic<bool> uiInputOpen { false };
+    std::atomic<float> uiScale { 0.9f };
     juce::AudioProcessorValueTreeState apvts;
     PresetManager presets { apvts };
 
@@ -59,6 +60,7 @@ public:
     float takeInPeak (int c) { return dsp.takeInPeak (c); }
     float takeOutPeak (int c) { return dsp.takeOutPeak (c); }
     void setEqSolo (int path, int band) { dsp.setEqSolo (path, band); }
+    void nudgeAutoGain() { dsp.requestAutoRematch(); }
     float dryGainReductionDb() const { return dsp.dryGainReductionDb(); }
     float wetGainReductionDb() const { return dsp.wetGainReductionDb(); }
     float dryMakeupDb() const { return dsp.dryMakeupDb(); }
@@ -88,13 +90,12 @@ private:
     // raw parameter pointers for one channel strip ("dry" or "wet")
     struct StripParams
     {
-        std::atomic<float>* level = nullptr;
         std::atomic<float>* eqOn = nullptr;
         std::atomic<float>* f[4] {}, * g[4] {}, * q[4] {}, * bandOn[4] {};
         std::atomic<float>* lowShelf = nullptr, * highShelf = nullptr;
         std::atomic<float>* compOn = nullptr, * in = nullptr, * atk = nullptr, * rel = nullptr;
         std::atomic<float>* ratio = nullptr, * out = nullptr, * colour = nullptr, * hpf = nullptr, * mix = nullptr;
-        std::atomic<float>* mute = nullptr, * solo = nullptr, * compFirst = nullptr, * compAuto = nullptr;
+        std::atomic<float>* compFirst = nullptr, * compAuto = nullptr;
         void bind (juce::AudioProcessorValueTreeState&, const juce::String& prefix);
         void read (ChannelStrip::Settings&) const;
     };

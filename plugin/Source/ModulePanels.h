@@ -21,10 +21,11 @@ public:
     // Single click opens/closes the panel; double-click ONLY switches the module on/off.
     // A click waits out the double-click window first, so a double-click never opens a panel.
     std::function<void()> onSingleClick, onDoubleClick;
-    void mouseDoubleClick (const juce::MouseEvent&) override
+    void mouseDoubleClick (const juce::MouseEvent& e) override
     {
         stopTimer();                 // cancel the pending single click
         swallowNextClick = true;     // the double-click's second mouse-up is not a click
+        if (look == Look::wide && e.x < 30) return;   // the lamp: its first click already switched it
         if (onDoubleClick) onDoubleClick();
     }
 
