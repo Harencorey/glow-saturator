@@ -128,7 +128,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
                AudioParameterBoolAttributes().withStringFromValueFunction ([] (bool v, int) { return v ? String ("24 dB/oct") : String ("12 dB/oct"); })));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "keepLows", 1 }, "Keep Lows", true));   // on for new instances
     // output
-    addFloat (l, "output", "Output", { -24.0f, 12.0f, 0.01f }, 0.0f, db);
+    addFloat (l, "output", "Output", { -24.0f, 24.0f, 0.01f }, 0.0f, db);
     // input trim, before everything (drives the tubes harder; Auto Gain compensates it)
     addFloat (l, "inputGain", "Input", { -24.0f, 24.0f, 0.01f }, 0.0f, db);
     // dry/wet: linear crossfade (0 % = clean, 100 % = saturated)

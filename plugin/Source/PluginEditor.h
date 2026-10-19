@@ -79,8 +79,9 @@ private:
     bool inputOpen = false;
     float uiScale = 0.9f;
     // design-unit geometry (scaled by uiScale): one height for every view, sections add width
-    static constexpr int kMargin = 14, kGap = 12, kTop = 54, kCardH = 312, kMainH = 446,
-                         kInputW = 350, kInputOpenW = 548, kCentreW = 440, kMixW = 350;   // HPF and MIX cards match
+    static constexpr int kMargin = 14, kGap = 12, kTop = 54, kCardH = 340, kMainH = 474,
+                         kInputW = 380, kInputOpenW = 548, kCentreW = 440, kMixW = 380;
+    static constexpr int kLine = 214;   // HPF, Drive and Mix knobs share this centre line (card-relative)   // HPF and MIX cards match
 
     // INPUT
     Knob hpf;
@@ -88,7 +89,7 @@ private:
     ToggleParam keepLows, preEqLink;
     LampButton preEqLamp;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> preEqLampAttach;
-    juce::TextButton slope12 { "12" }, slope24 { "24" };
+    juce::TextButton slope6 { "6" }, slope12 { "12" }, slope24 { "24" }, slope48 { "48" };   // MOCKUP: 6 and 48 not wired yet
     std::unique_ptr<juce::ParameterAttachment> slopeAttach;
     EqCurve preCurve;
     Knob preFreq, preQ;

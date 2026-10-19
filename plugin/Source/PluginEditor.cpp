@@ -248,6 +248,16 @@ void GlowLookAndFeel::drawButtonText (Graphics& g, TextButton& b, bool, bool)
         return;
     }
     const bool lamp = (bool) b.getProperties().getWithDefault ("lamp", false);
+    if ((bool) b.getProperties().getWithDefault ("tile", false))   // square: lamp on top, words stacked
+    {
+        drawLamp (g, { r.getCentreX(), r.getY() + 20.0f }, 4.0f, on);
+        g.setColour (on ? amber : text.withAlpha (0.88f));
+        g.setFont (FontOptions (12.0f).withKerningFactor (0.2f));
+        const auto words = StringArray::fromTokens (b.getButtonText(), " ", "");
+        float y = r.getCentreY() - 2.0f;
+        for (auto& w : words) { g.drawText (w, Rectangle<float> (r.getX(), y, r.getWidth(), 15.0f), Justification::centred); y += 16.0f; }
+        return;
+    }
     g.setFont (FontOptions (jmin (12.5f, r.getHeight() * 0.48f)).withKerningFactor (0.2f));
     const float tw = GlyphArrangement::getStringWidth (g.getCurrentFont(), b.getButtonText());
     const float total = tw + (lamp ? 15.0f : 0.0f);
@@ -363,7 +373,7 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     keepLows.button.getProperties().set ("lamp", true);
     keepLows.button.setTooltip ("KEEP LOWS: everything the high-pass removes skips the tubes and comes back clean, so the low "
                                 "end stays full and solid while only what's above it saturates. Off = a plain cut.");
-    for (auto* b : { &slope12, &slope24 })
+    for (auto* b : { &slope6, &slope12, &slope24, &slope48 })
     {
         b->setClickingTogglesState (false);
         b->setTooltip ("High-pass slope: 12 dB/oct (gentle) or 24 dB/oct (steep)");
@@ -772,10 +782,10 @@ void GlowEditor::paintBody (Graphics& g)
     {
         title ("HPF", leftCard.getX() + 20, leftCard.getY() + 22, (lamps & 1) != 0);
         rangeLabels (hpf, "20 Hz", "1 kHz");
-        const auto sl = slope12.getBounds().getUnion (slope24.getBounds());
+        const auto sl = slope6.getBounds().getUnion (slope48.getBounds());
         g.setColour (L::textDim);
         g.setFont (FontOptions (10.0f).withKerningFactor (0.2f));
-        g.drawText ("SLOPE  dB/OCT", sl.getX(), sl.getY() - 18, sl.getWidth(), 14, Justification::centred);
+        g.drawText ("dB/OCT", sl.getX() - 10, sl.getBottom() + 6, sl.getWidth() + 20, 14, Justification::centred);
     }
 
     // ---- centre: saturation
@@ -967,25 +977,31 @@ void GlowEditor::applyLayout()
     {
         const auto L = leftCard;
         inputExpand.setBounds (L.getRight() - 40, L.getY() + 12, 26, 24);
-        knobAt (hpf, rel (L, L.getWidth() / 2, 132), 132, 16, labelAt ({ 0, -100 }));   // the card's title names it
-        // Keep Lows and the slope on the front: Keep Lows left, 12 | 24 right
-        keepLows.button.setBounds (L.getX() + 26, L.getY() + 256, 136, 30);
-        slope12.setBounds (L.getRight() - 26 - 134, L.getY() + 259, 64, 24);
-        slope24.setBounds (L.getRight() - 26 - 64, L.getY() + 259, 64, 24);
+        // Keep Lows square | HPF knob | 2x2 slope squares, all on the knob line
+        knobAt (hpf, rel (L, L.getWidth() / 2, kLine), 132, 16, labelAt ({ 0, -100 }));
+        constexpr int sq = 84, cell = 39;
+        keepLows.button.setBounds (L.getX() + 22, L.getY() + kLine - sq / 2, sq, sq);
+        const int qx = L.getRight() - 22 - sq, qy = L.getY() + kLine - sq / 2;
+        slope6.setBounds (qx, qy, cell, cell);
+        slope12.setBounds (qx + sq - cell, qy, cell, cell);
+        slope24.setBounds (qx, qy + sq - cell, cell, cell);
+        slope48.setBounds (qx + sq - cell, qy + sq - cell, cell, cell);
     }
     hpf.label.setVisible (inputOpen);
+    keepLows.button.getProperties().set ("tile", ! inputOpen);
+    slope6.setVisible (! inputOpen); slope48.setVisible (! inputOpen);
 
     // ---- SATURATION (identical in every view)
     {
         const auto C = centreCard;
         const int cx = C.getWidth() / 2;
         tubeWindow = { C.getX() + cx - 160, C.getY() + 14, 320, 32 };
-        knobAt (even, rel (C, cx - 104, 98), 90, 0, labelAt (rel (C, cx - 104, 138)));
-        knobAt (density, rel (C, cx, 98), 90, 0, labelAt (rel (C, cx, 138)));
-        knobAt (odd, rel (C, cx + 104, 98), 90, 0, labelAt (rel (C, cx + 104, 138)));
-        knobAt (drive, rel (C, cx, 230), 158, 0, labelAt (rel (C, cx, 296), 80, 18));
-        knobAt (envAmount, rel (C, cx - 146, 236), 84, 0, labelAt (rel (C, cx - 146, 277)));
-        knobAt (envSpeed, rel (C, cx + 146, 236), 84, 0, labelAt (rel (C, cx + 146, 277)));
+        knobAt (even, rel (C, cx - 120, 80), 76, 0, labelAt (rel (C, cx - 120, 118)));
+        knobAt (density, rel (C, cx, 80), 76, 0, labelAt (rel (C, cx, 118)));
+        knobAt (odd, rel (C, cx + 120, 80), 76, 0, labelAt (rel (C, cx + 120, 118)));
+        knobAt (drive, rel (C, cx, kLine), 172, 0, labelAt (rel (C, cx, kLine + 92), 80, 18));   // ~15 % bigger than HPF / Mix
+        knobAt (envAmount, rel (C, cx - 160, kLine), 84, 0, labelAt (rel (C, cx - 160, kLine + 41)));
+        knobAt (envSpeed, rel (C, cx + 160, kLine), 84, 0, labelAt (rel (C, cx + 160, kLine + 41)));
         glowArea = drive.slider.getBounds().expanded (8);
         modDot.setBounds (drive.slider.getBounds());
     }
@@ -995,8 +1011,8 @@ void GlowEditor::applyLayout()
         const auto M = mixCard;
         const int cx = M.getWidth() / 2;
         // square-ish module tiles either side of the knob
-        constexpr int tileW = 92, tileH = 74, y1 = 98, y2 = 202;
-        knobAt (mix, rel (M, cx, (y1 + y2 + tileH) / 2), 112, 0, labelAt ({ 0, -100 }));
+        constexpr int tileW = 96, tileH = 78, y1 = kLine - tileH - 15, y2 = kLine + 15;
+        knobAt (mix, rel (M, cx, kLine), 130, 0, labelAt ({ 0, -100 }));
         mix.label.setVisible (false);
         auto column = [&] (PathMods& pm, int x)
         {
