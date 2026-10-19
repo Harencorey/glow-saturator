@@ -82,7 +82,7 @@ private:
     float uiScale = 0.9f;
     // design-unit geometry (scaled by uiScale): one height for every view, sections add width
     static constexpr int kMargin = 14, kGap = 12, kTop = 54, kCardH = 312, kMainH = 446,
-                         kInputW = 240, kInputOpenW = 548, kCentreW = 440, kMixW = 360, kMixOpenW = 580;
+                         kInputW = 240, kInputOpenW = 548, kCentreW = 440, kMixW = 452, kMixOpenW = 452;
 
     // INPUT
     Knob hpf;
@@ -98,11 +98,21 @@ private:
     Knob drive, even, odd, density, envAmount, envSpeed;
     // MIX & MASTER
     Knob mix;
-    ModuleIcon masterEq { ModuleIcon::Kind::eq, ModuleIcon::Look::wide }, masterComp { ModuleIcon::Kind::comp, ModuleIcon::Look::wide };
-    SwapButton masterSwap;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> masterSwapAttach;
-    std::atomic<float>* masterEqOn = nullptr, * masterCompOn = nullptr, * masterCompFirst = nullptr;
-    bool shownMasterCompFirst = false;
+    // each path's EQ / COMP (either side of the Mix knob) and their order
+    struct PathMods
+    {
+        juce::String prefix;
+        ModuleIcon eq { ModuleIcon::Kind::eq, ModuleIcon::Look::wide }, comp { ModuleIcon::Kind::comp, ModuleIcon::Look::wide };
+        SwapButton swap;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> swapAttach;
+        std::atomic<float>* eqOn = nullptr, * compOn = nullptr, * compFirst = nullptr;
+        bool shownCompFirst = false;
+    };
+    PathMods dryMods, wetMods;
+    void setupPath (PathMods&, const juce::String& prefix);
+    int drawerH() const { return panel != nullptr && panelKind == ModuleIcon::Kind::eq ? 372 : 300; }   // EQ: room for a big curve
+    // input / output meters (bottom strip)
+    StereoMeter inMeter { "IN" }, outMeter { "OUT", true };
     // bottom strip
     Knob input, output;
     ToggleParam autoGain;

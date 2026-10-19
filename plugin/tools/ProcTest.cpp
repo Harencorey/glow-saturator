@@ -84,14 +84,14 @@ int main()
 
         // user preset round trip
         const juce::String name = "ProcTest Temp Preset";
-        set ("drive", 63.0f); set ("masterEqOn", 1.0f); set ("masterEqGain2", -7.5f); set ("hpf", 120.0f); set ("masterCompRatio", 5.0f);
+        set ("drive", 63.0f); set ("wetEqOn", 1.0f); set ("wetEqGain2", -7.5f); set ("hpf", 120.0f); set ("dryCompRatio", 5.0f);
         check (pm.isModified(), "changing a knob marks the preset modified");
         check (pm.save (name) && pm.isUser (name) && pm.getCurrentName() == name && ! pm.isModified(), "save writes a user preset and makes it current");
         pm.load ("Default");
-        check (val ("drive") < 25.01f && val ("masterEqGain2") > -0.01f, "loading Default resets everything");
+        check (val ("drive") < 25.01f && val ("wetEqGain2") > -0.01f, "loading Default resets everything");
         pm.load (name);
-        check (std::abs (val ("drive") - 63.0f) < 0.02f && std::abs (val ("masterEqGain2") + 7.5f) < 0.02f
-               && std::abs (val ("hpf") - 120.0f) < 0.2f && std::abs (val ("masterCompRatio") - 5.0f) < 0.01f, "user preset loads back exactly");
+        check (std::abs (val ("drive") - 63.0f) < 0.02f && std::abs (val ("wetEqGain2") + 7.5f) < 0.02f
+               && std::abs (val ("hpf") - 120.0f) < 0.2f && std::abs (val ("dryCompRatio") - 5.0f) < 0.01f, "user preset loads back exactly");
 
         // session save/restore keeps the preset name and its "unmodified" state
         juce::MemoryBlock mb; p.getStateInformation (mb);
@@ -112,7 +112,7 @@ int main()
         check (r.apvts.getParameter ("hpf")->getText (r.apvts.getParameter ("hpf")->getValue(), 10) == "Off", "old session with HPF at 10 Hz loads as Off");
 
         // a session saved before the Mix knob (v0.1.26): Dry -6 / Wet 0 summed, a Wet comp, no Keep Lows
-        //  -> Mix 66.6 % + Output +3.53 dB (the same blend and level), the comp on the master, Keep Lows off
+        //  -> Mix 66.6 % + Output +3.53 dB (the same blend and level), the Wet comp kept, Keep Lows off
         auto oldSession = [] (std::function<void (juce::XmlElement&)> edit)
         {
             GlowProcessor fresh;
@@ -121,7 +121,7 @@ int main()
             for (auto* e : old->getChildWithTagNameIterator ("PARAM"))
             {
                 const auto id = e->getStringAttribute ("id");
-                if (id == "mix" || id == "keepLows" || id == "inputGain" || id.startsWith ("master")) drop.add (e);
+                if (id == "mix" || id == "keepLows" || id == "inputGain") drop.add (e);
             }
             for (auto* e : drop) old->removeChildElement (e, true);
             edit (*old);
@@ -141,7 +141,11 @@ int main()
             auto t = oldSession ([&] (juce::XmlElement& x)
             {
                 addParam (x, "dryLevel", -6.0); addParam (x, "wetLevel", 0.0);
-                addParam (x, "wetCompOn", 1.0); addParam (x, "wetCompInput", 9.0);
+                for (auto* e : x.getChildWithTagNameIterator ("PARAM"))
+                {
+                    if (e->getStringAttribute ("id") == "wetCompOn") e->setAttribute ("value", 1.0);
+                    if (e->getStringAttribute ("id") == "wetCompInput") e->setAttribute ("value", 9.0);
+                }
                 for (auto* e : x.getChildWithTagNameIterator ("PARAM")) if (e->getStringAttribute ("id") == "hpf") e->setAttribute ("value", 120.0);
             });
             auto v = [&t] (const char* id) { return t->apvts.getRawParameterValue (id)->load(); };
@@ -151,8 +155,8 @@ int main()
                    (juce::String ("old session Dry -6 / Wet 0 -> Mix ") + juce::String (v ("mix"), 1) + " %, Output +"
                     + juce::String (v ("output"), 2) + " dB (same blend and level)").toRawUTF8());
             check (v ("keepLows") < 0.5f, "old session without Keep Lows loads with it off");
-            check (v ("masterCompOn") > 0.5f && std::abs (v ("masterCompInput") - 9.0f) < 1e-3f && v ("masterEqOn") < 0.5f,
-                   "old session: the Wet comp moves to the master");
+            check (v ("wetCompOn") > 0.5f && std::abs (v ("wetCompInput") - 9.0f) < 1e-3f && v ("dryEqOn") < 0.5f,
+                   "old session: the Wet comp stays on");
             check (std::abs (v ("inputGain")) < 1e-6f, "old session: input 0 dB");
         }
         {   // a default v0.1.26 session (Dry Off): Mix 100 %, Output unchanged

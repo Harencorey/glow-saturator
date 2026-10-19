@@ -408,21 +408,12 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     mix.popupValue();
     mix.tip ("MIX: dry/wet. 100% = all saturated, 0% = all clean (both paths stay phase-locked, so any blend is solid).");
     mixP = s.getRawParameterValue ("mix");
-    for (auto* m : { &masterEq, &masterComp })
-    {
-        body.addAndMakeVisible (m);
-        const bool isEq = m == &masterEq;
-        m->setTooltip (String ("Master ") + (isEq ? "EQ" : "compressor") + " (after Dry and Wet are mixed): click the lamp to switch it on "
-                       "or off, click the rest to open it. Double-click also switches it.");
-        m->onSingleClick = [this, isEq] { togglePanel ("master", isEq ? ModuleIcon::Kind::eq : ModuleIcon::Kind::comp); };
-        m->onDoubleClick = [this, isEq] { toggleParam (isEq ? "masterEqOn" : "masterCompOn"); };
-    }
-    masterEqOn = s.getRawParameterValue ("masterEqOn");
-    masterCompOn = s.getRawParameterValue ("masterCompOn");
-    masterCompFirst = s.getRawParameterValue ("masterCompFirst");
-    body.addAndMakeVisible (masterSwap);
-    masterSwapAttach = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment> (s, "masterCompFirst", masterSwap);
-    masterSwap.setTooltip ("Swap the master order: EQ then Comp, or Comp then EQ (top runs first)");
+    setupPath (dryMods, "dry");
+    setupPath (wetMods, "wet");
+    body.addAndMakeVisible (inMeter);
+    body.addAndMakeVisible (outMeter);
+    inMeter.setTooltip ("Input level (after the Input knob: what hits the tubes), L and R. The number is the highest peak; click to reset.");
+    outMeter.setTooltip ("Output level, L and R. The number is the highest peak (red = over 0 dBFS); click to reset.");
 
     // ---- bottom strip: Input, Output, Auto
     input.setup (body, s, "inputGain", "INPUT", 0.0, 11.0f);
@@ -482,6 +473,28 @@ GlowEditor::~GlowEditor()
     setLookAndFeel (nullptr);
 }
 
+void GlowEditor::setupPath (PathMods& pm, const String& prefix)
+{
+    auto& s = proc.apvts;
+    pm.prefix = prefix;
+    const String Name = prefix == "dry" ? "Dry" : "Wet";
+    for (auto* m : { &pm.eq, &pm.comp })
+    {
+        body.addAndMakeVisible (m);
+        const bool isEq = m == &pm.eq;
+        m->setTooltip (Name + (isEq ? " EQ" : " compressor") + (prefix == "dry" ? " (on the clean path)" : " (on the saturated path)")
+                       + ": click the lamp to switch it on or off, click the rest to open it. Double-click also switches it.");
+        m->onSingleClick = [this, isEq, prefix] { togglePanel (prefix, isEq ? ModuleIcon::Kind::eq : ModuleIcon::Kind::comp); };
+        m->onDoubleClick = [this, isEq, prefix] { toggleParam (prefix + (isEq ? "EqOn" : "CompOn")); };
+    }
+    pm.eqOn = s.getRawParameterValue (prefix + "EqOn");
+    pm.compOn = s.getRawParameterValue (prefix + "CompOn");
+    pm.compFirst = s.getRawParameterValue (prefix + "CompFirst");
+    body.addAndMakeVisible (pm.swap);
+    pm.swapAttach = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment> (s, prefix + "CompFirst", pm.swap);
+    pm.swap.setTooltip ("Swap the " + Name + " order: EQ then Comp, or Comp then EQ (top runs first)");
+}
+
 // Flip a bool parameter as one host gesture (undoable / automatable like a click)
 void GlowEditor::toggleParam (const String& id)
 {
@@ -499,18 +512,19 @@ void GlowEditor::togglePanel (const String& prefix, ModuleIcon::Kind kind)
     closePanel();
     if (same) return;
 
-    const String name = "MASTER";
+    const String name = prefix == "dry" ? "DRY" : "WET";
     if (kind == ModuleIcon::Kind::eq)
         panel = std::make_unique<EqPanel> (proc.apvts, prefix, name);
     else
         panel = std::make_unique<CompPanel> (proc.apvts, prefix, name, [this, prefix]
-                     { return proc.masterGainReductionDb(); },
-                     [this] { return proc.masterMakeupDb(); });
+                     { return prefix == "dry" ? proc.dryGainReductionDb() : proc.wetGainReductionDb(); },
+                     [this, prefix] { return prefix == "dry" ? proc.dryMakeupDb() : proc.wetMakeupDb(); });
     panelPrefix = prefix;
     panelKind = kind;
     if (kind == ModuleIcon::Kind::eq)
     {
-        panel->setSoloHandler ([this] (int band) { proc.setEqSolo (4, band); });
+        const int path = prefix == "dry" ? 1 : 2;
+        panel->setSoloHandler ([this, path] (int band) { proc.setEqSolo (path, band); });
     }
     panel->onClose = [this] { MessageManager::callAsync ([sp = Component::SafePointer<GlowEditor> (this)]
                                                          { if (sp != nullptr) sp->closePanel(); }); };
@@ -583,18 +597,23 @@ void GlowEditor::timerCallback()
     abB.setToggleState (proc.getAB() == 1, dontSendNotification);
 
     if (inputOpen) preCurve.refresh();
+    bool anyModule = false;
+    for (auto* pm : { &dryMods, &wetMods })
     {
-        const bool mine = panel != nullptr && panelPrefix == "master";
-        masterEq.setState (masterEqOn->load() > 0.5f, mine && panelKind == ModuleIcon::Kind::eq);
-        masterComp.setState (masterCompOn->load() > 0.5f, mine && panelKind == ModuleIcon::Kind::comp);
+        const bool mine = panel != nullptr && panelPrefix == pm->prefix;
+        pm->eq.setState (pm->eqOn->load() > 0.5f, mine && panelKind == ModuleIcon::Kind::eq);
+        pm->comp.setState (pm->compOn->load() > 0.5f, mine && panelKind == ModuleIcon::Kind::comp);
+        anyModule = anyModule || pm->eqOn->load() > 0.5f || pm->compOn->load() > 0.5f;
     }
+    inMeter.push (proc.takeInPeak (0), proc.takeInPeak (1));
+    outMeter.push (proc.takeOutPeak (0), proc.takeOutPeak (1));
     if (panel != nullptr) panel->refresh();
     presetBar.refresh();
 
     // section lamps (HPF in, Mix/master doing something, mixer modules in)
     {
         const int lamps = (hpfP->load() >= GlowDSP::kHpfMinHz - 0.5f ? 1 : 0)
-                        | ((mixP->load() < 99.95f || masterEqOn->load() > 0.5f || masterCompOn->load() > 0.5f) ? 2 : 0);
+                        | ((mixP->load() < 99.95f || anyModule) ? 2 : 0);
         if (lamps != (int) body.getProperties().getWithDefault ("lamps", -1))
         {
             body.getProperties().set ("lamps", lamps);
@@ -615,7 +634,8 @@ void GlowEditor::timerCallback()
 
     // master chain order (icons stack top = first)
     bool relayout = false;
-    if ((masterCompFirst->load() > 0.5f) != shownMasterCompFirst) relayout = true;
+    for (auto* pm : { &dryMods, &wetMods })
+        if ((pm->compFirst->load() > 0.5f) != pm->shownCompFirst) relayout = true;
     if (relayout) applyLayout();
 
     // Drive glow + tube meter follow how hard the tubes are actually working (distortion vs the
@@ -648,7 +668,7 @@ juce::Rectangle<int> GlowEditor::designSize() const
 {
     // one height in every view (more room than before); expanding a section only adds width
     const int w = kMargin + (inputOpen ? kInputOpenW : kInputW) + kGap + kCentreW + kGap + (mixerOpen ? kMixOpenW : kMixW) + kMargin;
-    const int h = kMainH + (panel != nullptr ? 300 : 0);
+    const int h = kMainH + (panel != nullptr ? drawerH() : 0);
     return { 0, 0, w, h };
 }
 
@@ -798,7 +818,14 @@ void GlowEditor::paintBody (Graphics& g)
 
     // ---- right: MIX (& MASTER), and the mixer
     card (mixCard);
-    title (mixerOpen ? "MIX & MASTER" : "MIX", mixCard.getX() + 18, mixCard.getY() + (mixerOpen ? 17 : 22), (lamps & 2) != 0);
+    title ("MIX", mixCard.getX() + 18, mixCard.getY() + 22, (lamps & 2) != 0);
+    for (auto* pm : { &dryMods, &wetMods })   // which side is which
+    {
+        const auto top = (pm->shownCompFirst ? pm->comp : pm->eq).getBounds();
+        g.setColour (L::text.withAlpha (0.9f));
+        g.setFont (FontOptions (12.5f).withKerningFactor (0.35f));
+        g.drawText (pm == &dryMods ? "DRY" : "WET", top.getX(), top.getY() - 26, top.getWidth(), 16, Justification::centred);
+    }
     {
         const auto b = mix.slider.getBounds().toFloat();
         const float S = jmin (b.getWidth(), b.getHeight());
@@ -949,16 +976,22 @@ void GlowEditor::applyLayout()
         modDot.setBounds (drive.slider.getBounds());
     }
 
-    // ---- MIX & MASTER: the Mix knob, then the master EQ / COMP (+ their order)
+    // ---- MIX: Dry EQ / COMP | the Mix knob | Wet EQ / COMP
     {
         const auto M = mixCard;
-        const bool cf = masterCompFirst->load() > 0.5f;
-        shownMasterCompFirst = cf;
-        knobAt (mix, rel (M, 104, 160), 128, 0, labelAt ({ 0, -100 }));
-        (cf ? masterComp : masterEq).setBounds (M.getX() + 198, M.getY() + 112, 150, 38);
-        (cf ? masterEq : masterComp).setBounds (M.getX() + 198, M.getY() + 164, 150, 38);
-        masterSwap.setBounds (M.getX() + 176, M.getY() + 138, 18, 38);
+        const int cx = M.getWidth() / 2;
+        knobAt (mix, rel (M, cx, 160), 124, 0, labelAt ({ 0, -100 }));
         mix.label.setVisible (false);
+        auto column = [&] (PathMods& pm, int x)
+        {
+            const bool cf = pm.compFirst->load() > 0.5f;
+            pm.shownCompFirst = cf;
+            (cf ? pm.comp : pm.eq).setBounds (M.getX() + x, M.getY() + 118, 132, 36);
+            (cf ? pm.eq : pm.comp).setBounds (M.getX() + x, M.getY() + 180, 132, 36);
+            pm.swap.setBounds (M.getX() + x + 57, M.getY() + 156, 18, 22);
+        };
+        column (dryMods, 16);
+        column (wetMods, M.getWidth() - 16 - 132);
     }
 
     // ---- bottom strip (right): INPUT knob | OUTPUT knob, AUTO
@@ -968,10 +1001,13 @@ void GlowEditor::applyLayout()
         knobAt (input, { R - 240, cy - 4 }, 44, 13, { R - 316, cy - 11, 48, 14 });
         knobAt (output, { R - 156, cy - 4 }, 44, 13, { R - 130, cy - 11, 56, 14 });
         autoGain.button.setBounds (R - 70, cy - 14, 74, 28);
+        const int mx = leftCard.getX() + 30, mw = jmin (470, bottomArea.getX() - 40 - mx);
+        inMeter.setBounds (mx, cy - 24, mw, 12);
+        outMeter.setBounds (mx, cy - 4, mw, 25);
     }
 
     // ---- the EQ / COMP drawer under the main controls
-    drawerArea = { 12, mainH, W - 24, 288 };
+    drawerArea = { 12, mainH, W - 24, drawerH() - 12 };
     if (panel != nullptr) panel->setBounds (drawerArea);
 
     lead.setBounds (0, 0, W, mainH);
