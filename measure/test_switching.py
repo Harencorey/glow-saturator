@@ -20,6 +20,8 @@ SCEN = {
     "HPF in/out + sweeps": (150, ["at=0.5", "hpf=20", "at=1.0", "hpf=200", "at=1.5", "hpf=19", "at=2.0", "hpf=400", "at=2.5", "hpf=19"]),
     "pre-EQ + Link, HPF slope, Keep lows": (5000, ["peq=1", "at=0.5", "peqHG=8", "at=1.0", "peqLink=1", "at=1.5", "peqHG=0", "peqMF=4000", "peqMG=-9",
                                                   "at=2.0", "peqLink=0", "at=2.5", "peqMG=0"]),
+    "HPF slope 24 -> 6 -> 36 -> 12, Keep lows on/off": (80, ["hpf=150", "keep=1", "at=0.5", "slope=0", "at=1.0", "slope=3", "at=1.5",
+                                                             "slope=1", "keep=0", "at=2.0", "slope=0", "at=2.5", "slope=3"]),
     "Keep lows on/off @ 80 Hz": (80, ["hpf=150", "at=0.5", "keep=1", "at=1.0", "keep=0", "at=1.5", "keep=1", "hpf24=0", "at=2.0", "hpf=19", "at=2.5", "hpf=200"]),
     "comps on/off, Mix moves": (1000, ["wetIn=18", "wetColour=1", "wetMix=50", "dryIn=12", "dryColour=2", "dryMix=30",
                                        "at=0.5", "wetComp=1", "at=1.0", "dryComp=1", "at=1.5", "wetMix=100", "dryMix=0",

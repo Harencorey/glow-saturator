@@ -44,12 +44,6 @@ private:
         void paintButton (juce::Graphics&, bool over, bool down) override;
         bool redo;
     };
-    struct ChevronButton : public juce::Button   // expand (down chevron) / collapse (up chevron)
-    {
-        ChevronButton() : juce::Button ("expand") {}
-        void paintButton (juce::Graphics&, bool over, bool down) override;
-        bool expanded = false;
-    };
     struct LampButton : public juce::Button      // a section's title lamp that switches it (pre-sat EQ on)
     {
         LampButton() : juce::Button ("lamp") { setClickingTogglesState (true); }
@@ -68,7 +62,6 @@ private:
     void paintLead (juce::Graphics&);
 
     // view state: which sections are open, interface size (kept in the session, not parameters)
-    void setExpanded (bool input);
     void applyLayout();      // design size -> window size, and lays everything out
     void showSizeMenu();
     juce::Rectangle<int> designSize() const;
@@ -76,22 +69,20 @@ private:
     GlowProcessor& proc;
     GlowLookAndFeel lnf;
     Body body;
-    bool inputOpen = false;
     float uiScale = 0.9f;
     // design-unit geometry (scaled by uiScale): one height for every view, sections add width
-    static constexpr int kMargin = 14, kGap = 12, kTop = 54, kCardH = 312, kMainH = 446,
-                         kInputW = 350, kInputOpenW = 548, kCentreW = 440, kMixW = 350;   // HPF and MIX cards match
+    static constexpr int kMargin = 14, kGap = 12, kTop = 54, kCardH = 306, kMainH = 440,
+                         kInputW = 380, kCentreW = 440, kMixW = 380;
+    static constexpr int kLine = 188;   // HPF, Drive and Mix knobs share this line: the middle of each card below its title
 
     // INPUT
     Knob hpf;
-    ChevronButton inputExpand;
     ToggleParam keepLows, preEqLink;
     LampButton preEqLamp;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> preEqLampAttach;
-    juce::TextButton slope12 { "12" }, slope24 { "24" };
+    juce::TextButton slope6 { "6" }, slope12 { "12" }, slope24 { "24" }, slope36 { "36" };   // HPF slope, dB/oct
     std::unique_ptr<juce::ParameterAttachment> slopeAttach;
     EqCurve preCurve;
-    Knob preFreq, preQ;
     // SATURATION
     Knob drive, even, odd, density, envAmount, envSpeed;
     // MIX & MASTER

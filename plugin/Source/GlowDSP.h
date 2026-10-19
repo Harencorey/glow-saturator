@@ -73,7 +73,7 @@ public:
         float odd = 50.0f;      // 0..100     50 = as measured, -/+12 dB of clipping depth at 0/100
         float density = 50.0f;  // 0..100     input-stage heat: 50 = measured, 0 = clean, 100 = +12 dB hotter
         float hpfHz = kHpfOffHz; // Off, or 20..1000 Hz   pre-saturation high-pass
-        bool hpf24 = true;      // HPF slope: 24 dB/oct (true) or 12 dB/oct
+        int hpfSlope = 2;       // HPF slope: 0 = 6, 1 = 12, 2 = 24, 3 = 36 dB/oct
         bool keepLows = false;  // what the HPF removes skips the tubes and is added back clean
         float outputDb = 0.0f;  // -24..+12 dB
         bool autoGain = false;  // match output loudness to input (before the Output trim)
@@ -123,8 +123,11 @@ public:
         wetStrip.prepare (sr, channels, maxBlock);
 
         ch.assign ((size_t) channels, Channel {});
-        hpf[0].stage.prepare (sr, maxBlock, Coherent::Kind::highPass);     // 24 dB/oct
-        hpf[1].stage.prepare (sr, maxBlock, Coherent::Kind::highPass12);   // 12 dB/oct
+        hpf[0].stage.prepare (sr, maxBlock, Coherent::Kind::highPass);      // 24 dB/oct
+        hpf[1].stage.prepare (sr, maxBlock, Coherent::Kind::highPass12);    // 12 dB/oct
+        hpf[2].stage.prepare (sr, maxBlock, Coherent::Kind::highPass6);     // 6 dB/oct
+        hpf[3].stage.prepare (sr, maxBlock, Coherent::Kind::highPass36a);   // 36 dB/oct = [3] then [4]
+        hpf[4].stage.prepare (sr, maxBlock, Coherent::Kind::highPass36b);
         keepBuf.setSize (channels, maxBlock, false, true, true);
         keepBuf2.setSize (channels, maxBlock, false, true, true);
         for (auto& c : ch)
@@ -283,10 +286,14 @@ public:
         // HPF: one stage per slope; switching slope glides one out and the other in (no click)
         {
             const bool on = params.hpfHz >= kHpfMinHz - 0.5f;
-            hpf[0].stage.plan (on && params.hpf24, params.hpfHz, 0.0f, 0.70710678f, n);
-            hpf[1].stage.plan (on && ! params.hpf24, params.hpfHz, 0.0f, 0.70710678f, n);
+            const int sl = juce::jlimit (0, 3, params.hpfSlope);
+            hpf[0].stage.plan (on && sl == 2, params.hpfHz, 0.0f, 0.70710678f, n);
+            hpf[1].stage.plan (on && sl == 1, params.hpfHz, 0.0f, 0.70710678f, n);
+            hpf[2].stage.plan (on && sl == 0, params.hpfHz, 0.0f, 0.70710678f, n);
+            hpf[3].stage.plan (on && sl == 3, params.hpfHz, 0.0f, 0.70710678f, n);
+            hpf[4].stage.plan (on && sl == 3, params.hpfHz, 0.0f, 0.70710678f, n);
         }
-        const bool hpfBusy = hpf[0].stage.busy() || hpf[1].stage.busy();
+        const bool hpfBusy = std::any_of (hpf.begin(), hpf.end(), [] (const Hpf& h) { return h.stage.busy(); });
         // Keep lows: fades in/out over 20 ms; only does anything while the HPF is in
         const bool keepWanted = params.keepLows && hpfBusy;
         const bool needKeep = keepWanted || keepMix > 0.0f;
@@ -834,7 +841,7 @@ private:
         Coherent::Allpass ap, keepAp;
         void reset() { main.reset(); keepMain.reset(); ap.reset(); keepAp.reset(); stage.snapNext(); }
     };
-    std::array<Hpf, 2> hpf;   // [0] 24 dB/oct, [1] 12 dB/oct
+    std::array<Hpf, 5> hpf;   // [0] 24, [1] 12, [2] 6 dB/oct; [3] + [4] in series = 36 dB/oct
     juce::AudioBuffer<float> keepBuf, keepBuf2;   // Keep lows: the clean lows under the HPF (+ scratch)
     float keepMix = 0.0f;
     bool keepStale = true;
