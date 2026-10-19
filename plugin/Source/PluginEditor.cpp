@@ -373,6 +373,14 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     keepLows.button.getProperties().set ("lamp", true);
     keepLows.button.setTooltip ("KEEP LOWS: everything the high-pass removes skips the tubes and comes back clean, so the low "
                                 "end stays full and solid while only what's above it saturates. Off = a plain cut.");
+    for (int i = 0; i < 4; ++i)
+    {
+        typeBtn[i].setClickingTogglesState (true);
+        typeBtn[i].setRadioGroupId (771);
+        typeBtn[i].setTooltip ("Drive type (mockup)");
+        body.addAndMakeVisible (typeBtn[i]);
+    }
+    typeBtn[0].setToggleState (true, dontSendNotification);
     for (auto* b : { &slope6, &slope12, &slope24, &slope48 })
     {
         b->setClickingTogglesState (false);
@@ -613,7 +621,7 @@ void GlowEditor::timerCallback()
     abA.setToggleState (proc.getAB() == 0, dontSendNotification);
     abB.setToggleState (proc.getAB() == 1, dontSendNotification);
 
-    if (inputOpen) preCurve.refresh();
+    preCurve.refresh();
     bool anyModule = false;
     for (auto* pm : { &dryMods, &wetMods })
     {
@@ -780,7 +788,9 @@ void GlowEditor::paintBody (Graphics& g)
     }
     else
     {
-        title ("HPF", leftCard.getX() + 20, leftCard.getY() + 22, (lamps & 1) != 0);
+        g.setColour (L::text.withAlpha (0.9f));
+        g.setFont (FontOptions (12.5f).withKerningFactor (0.3f));
+        g.drawText ("PRE-SAT EQ", leftCard.getX() + 30, leftCard.getY() + 9, 160, 16, Justification::centredLeft);
         rangeLabels (hpf, "20 Hz", "1 kHz");
         const auto sl = slope6.getBounds().getUnion (slope48.getBounds());
         g.setColour (L::textDim);
@@ -852,6 +862,12 @@ void GlowEditor::paintBody (Graphics& g)
         const float S = jmin (b.getWidth(), b.getHeight());
         small ("0%", b.getCentreX() - S * 0.40f, b.getCentreY() + S * 0.42f);
         small ("100%", b.getCentreX() + S * 0.40f, b.getCentreY() + S * 0.42f);
+    }
+    {   // MOCKUP: drive TYPE group label
+        const auto tb = typeBtn[0].getBounds();
+        g.setColour (L::textDim);
+        g.setFont (FontOptions (11.0f).withKerningFactor (0.3f));
+        g.drawText ("TYPE", tb.getX() - 52, tb.getY(), 44, tb.getHeight(), Justification::centredRight);
     }
     // ---- bottom strip: INPUT | OUTPUT  AUTO
     g.setColour (Colour (0xff2a2622));
@@ -958,6 +974,9 @@ void GlowEditor::applyLayout()
     for (Component* c : { (Component*) &preEqLink.button, (Component*) &preEqLamp, (Component*) &preCurve, (Component*) &preFreq.slider, (Component*) &preFreq.label,
                           (Component*) &preQ.slider, (Component*) &preQ.label })
         c->setVisible (inputOpen);
+    for (Component* c : { (Component*) &preEqLink.button, (Component*) &preEqLamp, (Component*) &preCurve })
+        c->setVisible (true);   // MOCKUP: the small curve is the EQ in the compact view
+    inputExpand.setVisible (false);
     inputExpand.expanded = inputOpen;
     if (inputOpen)
     {
@@ -976,7 +995,9 @@ void GlowEditor::applyLayout()
     else
     {
         const auto L = leftCard;
-        inputExpand.setBounds (L.getRight() - 40, L.getY() + 12, 26, 24);
+        preEqLamp.setBounds (L.getX() + 10, L.getY() + 9, 20, 20);
+        preEqLink.button.setBounds (L.getRight() - 78, L.getY() + 8, 64, 24);
+        preCurve.setBounds (L.getX() + 22, L.getY() + 42, L.getWidth() - 44, 78);
         // Keep Lows square | HPF knob | 2x2 slope squares, all on the knob line
         knobAt (hpf, rel (L, L.getWidth() / 2, kLine + 6), 130, 16, labelAt ({ 0, -100 }));
         constexpr int sq = 84, cell = 39;
@@ -1035,7 +1056,11 @@ void GlowEditor::applyLayout()
         knobAt (input, { R - 240, cy - 4 }, 44, 13, { R - 316, cy - 11, 48, 14 });
         knobAt (output, { R - 156, cy - 4 }, 44, 13, { R - 130, cy - 11, 56, 14 });
         autoGain.button.setBounds (R - 70, cy - 14, 74, 28);
-        const int mx = leftCard.getX() + 30, mw = jmin (470, bottomArea.getX() - 40 - mx);
+        const int mx = leftCard.getX() + 30, mw = 350;
+        // MOCKUP: drive TYPE, centred under the Drive knob
+        const int tw = 66, tg = 4, tx0 = centreCard.getCentreX() - (4 * tw + 3 * tg) / 2 + 22;
+        for (int i = 0; i < 4; ++i)
+            typeBtn[i].setBounds (tx0 + i * (tw + tg), cy - 14, tw, 28);
         inMeter.setBounds (mx, cy - 24, mw, 12);
         outMeter.setBounds (mx, cy - 4, mw, 25);
     }

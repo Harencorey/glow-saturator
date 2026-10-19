@@ -89,7 +89,8 @@ private:
     ToggleParam keepLows, preEqLink;
     LampButton preEqLamp;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> preEqLampAttach;
-    juce::TextButton slope6 { "6" }, slope12 { "12" }, slope24 { "24" }, slope48 { "48" };   // MOCKUP: 6 and 48 not wired yet
+    juce::TextButton slope6 { "6" }, slope12 { "12" }, slope24 { "24" }, slope48 { "36" };   // MOCKUP: 6 and 36 not wired yet
+    juce::TextButton typeBtn[4] { juce::TextButton ("TUBE"), juce::TextButton ("IRON"), juce::TextButton ("TAPE"), juce::TextButton ("DIODE") };   // MOCKUP: drive types
     std::unique_ptr<juce::ParameterAttachment> slopeAttach;
     EqCurve preCurve;
     Knob preFreq, preQ;
