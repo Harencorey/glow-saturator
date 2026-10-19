@@ -425,6 +425,10 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     input.tip ("INPUT: level into Glow (before the high-pass and the tubes). Push it to drive the tubes harder; Auto Gain "
                "keeps the output level steady.");
     output.tip ("OUTPUT: final level trim, after everything (and after Auto)");
+    // typing a value into the Input box counts as a hand turn too (the text-to-value function
+    // only runs for typed entry, never for host automation)
+    if (auto prev = input.slider.valueFromTextFunction)
+        input.slider.valueFromTextFunction = [this, prev] (const String& t) { proc.nudgeAutoGain(); return prev (t); };
     autoGain.setup (body, s, "autoGain", "AUTO");
     autoGain.button.getProperties().set ("lamp", true);
 
