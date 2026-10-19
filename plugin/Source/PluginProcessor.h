@@ -56,10 +56,13 @@ public:
     }
 
     // meters (message thread)
-    float takeMasterPeak() { return dsp.takeMasterPeak(); }
+    float takeInPeak (int c) { return dsp.takeInPeak (c); }
+    float takeOutPeak (int c) { return dsp.takeOutPeak (c); }
     void setEqSolo (int path, int band) { dsp.setEqSolo (path, band); }
-    float masterGainReductionDb() const { return dsp.masterGainReductionDb(); }
-    float masterMakeupDb() const { return dsp.masterMakeupDb(); }
+    float dryGainReductionDb() const { return dsp.dryGainReductionDb(); }
+    float wetGainReductionDb() const { return dsp.wetGainReductionDb(); }
+    float dryMakeupDb() const { return dsp.dryMakeupDb(); }
+    float wetMakeupDb() const { return dsp.wetMakeupDb(); }
     float autoGainDb() const { return dsp.getAutoGainDb(); }
     float takeDrivenness() { return dsp.takeDrivenness(); }
     float modulatedDrive() const { return dsp.getModulatedDrive(); }
@@ -95,11 +98,10 @@ private:
         void bind (juce::AudioProcessorValueTreeState&, const juce::String& prefix);
         void read (ChannelStrip::Settings&) const;
     };
-    StripParams masterParams;
+    StripParams dryParams, wetParams;
 
   public:
-    // older sessions/presets: Dry/Wet levels -> Mix (+ Output), the Wet strip's EQ/Comp -> the
-    // master's, Keep Lows off where it wasn't stored
+    // older sessions/presets: Dry/Wet levels -> Mix (+ Output), Keep Lows off where it wasn't stored
     static void upgradeLegacyValues (std::map<juce::String, float>& realUnits);
   private:
 

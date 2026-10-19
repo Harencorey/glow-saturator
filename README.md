@@ -36,7 +36,8 @@ A **\*** after the name means you've changed something since loading it.
 
 The window, left to right: **HPF / PRE-SAT EQ** (click the arrow to widen the window into the full pre-saturation
 EQ), the **tubes** (Even / Density / Odd above Drive, the envelope follower either side of it) and **MIX** (the Mix
-knob plus the master EQ and compressor). Along the bottom right: **Input**, **Output** and **Auto**. In the header:
+knob, with the Dry path's EQ / COMP on its left and the Wet path's on its right). Along the bottom: **IN / OUT meters**,
+**Input**, **Output** and **Auto**. In the header:
 presets, **A/B** and **undo/redo**. Right-click the background for the interface size (75-130 %).
 
 **Input** (before the tubes)
@@ -46,7 +47,7 @@ presets, **A/B** and **undo/redo**. Right-click the background for the interface
 | **12 dB / 24 dB** | High-pass slope: 12 dB/oct (gentle) or 24 dB/oct (Linkwitz-Riley, steep). Switching glides between the two, no click. |
 | **Keep Lows** | A switch: everything the high-pass removes skips the tubes and comes back **clean, at full level**, so the low end stays full and solid while only what's above it saturates (a clean low-band split, like a parallel crossover). The split is exact: on quiet (clean) signal the output is flat within 0.3 dB vs the HPF off. Off = a plain cut. The dashed line on the curve shows the clean lows. Switching fades over 20 ms. |
 | **Pre-sat EQ** | The curve under the high-pass: what goes into the tubes. **M** = a fully parametric mid bell (40 Hz–12 kHz, ±15 dB, Q 0.1–10), **H** = a high shelf (1–20 kHz, Q shapes the corner: 0.71 plain, higher adds the passive-style bump/dip). The curve includes the high-pass (cut region shaded). **Drag** a point = frequency + gain, **Cmd-drag** = Q, **Option-drag** = frequency only, **hold Shift** = solo the band, **double-click** = bypass the band, Option-double-click = gain to 0 dB. Dragging switches the EQ on. **ON** switches it on/off. |
-| **LINK** | The exact opposite EQ runs after the tubes (the dashed mirror curve), so you change *what saturates* (push the mids into the tubes, say) while the overall tone stays put. Measured: linked, it nets to 0.00 dB on clean signal. **With Link off there is no post EQ**: shape the result with the master EQ instead. Note: boosting into the tubes makes them compress harder, so with Link the tone stays put but the level drops (about 2.5 dB for +8 dB mid / +6 dB high at Drive 50); turn on Auto to compare at matched loudness. |
+| **LINK** | The exact opposite EQ runs after the tubes (the dashed mirror curve), so you change *what saturates* (push the mids into the tubes, say) while the overall tone stays put. Measured: linked, it nets to 0.00 dB on clean signal. **With Link off there is no post EQ**: shape the saturated sound with the Wet EQ instead. Note: boosting into the tubes makes them compress harder, so with Link the tone stays put but the level drops (about 2.5 dB for +8 dB mid / +6 dB high at Drive 50); turn on Auto to compare at matched loudness. |
 
 **Tubes**
 | Control | What it does |
@@ -58,33 +59,34 @@ presets, **A/B** and **undo/redo**. Right-click the background for the interface
 | **Odd** | How hard the output stage clips: ±12 dB around where Drive puts it. Symmetric clipping makes the 3rd/5th/7th harmonics. Adaptive auto-gain keeps the loudness steady (within ±0.25 dB on test material). |
 | **Density** | How hard the input tube stage is hit. 50 % = matched; higher gives more lopsided bloom and "breathing" after loud hits. |
 
-**Mix and master**
+**Mix, Dry / Wet modules, meters**
 | Control | What it does |
 |---|---|
 | **Mix** | Dry/wet: 100 % = all saturated, 0 % = all clean. A linear crossfade (the two paths are phase-locked copies, so a blend never thins out or bumps the level in the middle). At 100 % the clean path is switched off completely. |
-| **EQ / COMP** | The master EQ and compressor, on the mixed signal. Click the lamp (or double-click the button) to switch one on/off; click the rest to open its editor in the drawer under the main window. The arrows between them swap the order (top runs first). |
-| **Input** | −24 to +24 dB, before everything: push it to drive the tubes harder. Auto Gain measures the input before this trim, so with Auto on, Input changes the drive, not the level. |
+| **DRY / WET EQ, COMP** | Each path's own EQ and compressor, before the Mix: DRY (left) works on the clean path, WET (right) on the saturated one. Click the lamp (or double-click the button) to switch one on/off; click the rest to open its editor in the drawer under the main window. The arrows between them swap that path's order (top runs first). |
+| **IN / OUT meters** | Peak meters, L and R: IN is after the Input knob (what hits the tubes), OUT is the plug-in's output. The number is the highest peak so far (red once it has gone over 0 dBFS); click a meter to reset it. |
+| **Input** | −24 to +24 dB, before everything: push it to drive the tubes harder. Auto Gain measures the input before this trim, so with Auto on, Input changes the drive, not the level: after you move Input (or Drive, Density, Even, Odd, Mix) it re-matches in about half a second, then goes back to its slow, steady 3 s average. |
 | **Output** | −24 to +12 dB trim, the last thing in the chain. |
 | **Auto** | Master auto gain (note: Drive 0 is not a bypass. The tube voicing EQ stays in, about +1.6 dB around 100 Hz, so AUTO typically shows −0.1 to −1 dB there, more on bass-heavy material): keeps the output as loud as the input (K-weighted, like LUFS, averaged over ~3 s), so Drive/EQ/comp moves don't fool your ears and bypass A/Bs are fair. The AUTO tooltip shows what it's applying (±18 dB max). It holds through silence and only updates while audio is playing. Output trims on top. It's slow on purpose: it matches loudness, it doesn't ride the level. |
 
-The master editors:
-Master signal order: EQ → Comp (with its Mix), or Comp → EQ when flipped.
+The EQ / COMP editors (Dry and Wet):
+Signal order in each path: EQ → Comp (with its Mix), or Comp → EQ when flipped, then the Mix.
 
-Older sessions and presets load with the same sound: their Dry/Wet balance becomes the matching Mix setting (plus Output, unless Auto Gain was on), and the Wet strip's EQ/comp moves to the master (exact when Dry was off, the default).
+Older sessions and presets load with the same sound: their Dry/Wet balance becomes the matching Mix setting (plus Output, unless Auto Gain was on), with their EQ / comp settings unchanged.
 
-At the default settings (Even, Odd and Density at 50 %, HPF off, pre-sat EQ off, Mix 100 %, master EQ and Comp off) the output is bit-identical to v0.1.5, the BB Tubes-matched version.
+At the default settings (Even, Odd and Density at 50 %, HPF off, pre-sat EQ off, Mix 100 %, EQs and comps off) the output is bit-identical to v0.1.5, the BB Tubes-matched version.
 
 ## Dry/Wet phase lock
 
-Whatever the saturated path is doing, Dry and Wet arrive at the Mix in phase. Every filter before the Mix (HPF, the
-pre-sat EQ) is built as a pair: a normal bell/shelf/high-pass at half the gain, then the same filter
+Whatever either path is doing, Dry and Wet arrive at the Mix in phase. Every user filter (HPF, the pre-sat EQ,
+both paths' EQ bands) is built as a pair: a normal bell/shelf/high-pass at half the gain, then the same filter
 with its numerator reversed. The pair gives the full gain with a phase response that is **exactly** an all-pass,
 and the other path runs that all-pass (flat magnitude). It's the same trick that keeps a Linkwitz-Riley
 crossover's two halves in phase. Both paths read one shared per-32-sample plan, so they stay locked while knobs move
 and while bands fade in or out.
 
 Measured (`measure/test_coherence.py`, `measure/test_switching.py`): wet-vs-dry phase stays within about 4° (the old
-fixed tube-voicing filter fit, unchanged) with HPF, Keep Lows, pre-sat EQ and the master in use, at
+fixed tube-voicing filter fit, unchanged) with HPF, Keep Lows, pre-sat EQ, both EQs and both comps in use, at
 44.1/48 kHz (up to ~11° at 96 kHz with Keep Lows, unchanged since v0.1.26). A 50/50 parallel sum loses under 0.01 dB. v0.1.8 lost up to 12 dB with the HPF up. During
 switching or automation the worst momentary loss is 0.1 dB.
 
@@ -100,14 +102,14 @@ cancels completely, phase included (measured 0.00 ms / 0.00 dB), so they need no
 in ─┬─ HPF → pre-sat EQ → input coupling HPFs (~24 Hz res.) → low bump (+2.8 dB @ 44 Hz) → presence dip
     │   → [4x oversampled]  input tube stage → coupling cap (~10 Hz) → Drive (+Odd) → output tube stage
     │                       (each stage's even part scaled by Even)
-    │   → DC blocker → auto-gain → mirror EQ (Link) → + clean lows (Keep Lows) ──────────────┐ Mix
-    └─ dry (latency-matched, + all-passes of the wet filters) ─────────────────────────────────┴─(crossfade)
-       → master EQ / Comp (4x oversampled, either order) → Auto Gain → Output
+    │   → DC blocker → auto-gain → mirror EQ (Link) → + clean lows (Keep Lows) → WET EQ / Comp ─┐ Mix
+    └─ dry (latency-matched, + all-passes of the wet filters) → DRY EQ / Comp ─────────────────────┴─(crossfade)
+       → Auto Gain → Output
 ```
 
 ### Quality and timing
 - **Oversampling:** the tube stages run at ~384 kHz whatever the session rate (8× at 44.1/48k,
-  4× at 88.2/96k, 2× at 176.4/192k), using linear-phase FIR filters. The master comp (gain, distortion colour and Mix) runs 4× (2× at 88.2k and up).
+  4× at 88.2/96k, 2× at 176.4/192k), using linear-phase FIR filters. The comps (gain, distortion colour and Mix) run 4× (2× at 88.2k and up).
 - **Latency:** 103 samples at 44.1/48 kHz, reported to the host and compensated. **Bypass keeps the same latency**,
   so toggling bypass never shifts the track in time.
 - **Dry/Wet phase:** the dry path runs through an identical copy of the oversampling filters, plus an all-pass
@@ -115,7 +117,7 @@ in ─┬─ HPF → pre-sat EQ → input coupling HPFs (~24 Hz res.) → low bu
   The two sum coherently: under 7° of difference from 20 Hz–20 kHz, and the dry path is flat within ±0.04 dB.
 - **Stereo:** identical L/R in gives bit-identical L/R out, with no crosstalk. The compressors and the Odd auto-gain are stereo-linked.
 - **CPU** (one core of a 2.8 GHz cloud Xeon, 48 kHz stereo): ~7 % at default, ~12 % with Even/Odd in use,
-  ~16 % with the master EQ + comp on as well. Expect roughly half that on Apple Silicon.
+  ~16 % with both paths' EQ + comps on. Expect roughly half that on Apple Silicon.
 
 ## How close it is to BB Tubes (measured at Drive 0/25/50/75/100)
 
@@ -133,7 +135,7 @@ in ─┬─ HPF → pre-sat EQ → input coupling HPFs (~24 Hz res.) → low bu
 - `Source/DriveMap.h`: fitted constants, **generated** by `model/gen_drivemap.py`; don't hand-edit.
 - `Source/Biquad.h`: double-precision RBJ filters.
 - `Source/PhaseCoherent.h`: the phase-locked filters (user EQ/HPF/shelves) and their all-pass twins.
-- `Source/ChannelStrip.h`: the master EQ + compressor (with Mix).
+- `Source/ChannelStrip.h`: each path's EQ + compressor (with Mix).
 - `Source/PluginProcessor.*`, `Source/PluginEditor.*`: JUCE wrapper and UI.
 - `tools/RenderTool.cpp`: offline renderer (`-DGLOW_BUILD_TOOLS=ON`), used for the A/B tests.
 - `../measure/`: test-signal generator, analysis, BB comparison, and the aliasing/stress test.

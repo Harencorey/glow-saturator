@@ -174,3 +174,83 @@ private:
     float level = -100.0f, hold = -100.0f;
     int holdTicks = 0;
 };
+
+// Horizontal stereo peak meter (L above R), -48..+6 dBFS, green / yellow (-12) / red (-3),
+// a short peak hold, and a readout of the highest peak (red once it has gone over 0 dBFS).
+// Click it to reset the readout. The OUT meter also prints the dB scale under its bars.
+class StereoMeter : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    explicit StereoMeter (const juce::String& n, bool scale = false) : name (n), showScale (scale) {}
+
+    void push (float peakL, float peakR)
+    {
+        const float pk[2] { peakL, peakR };
+        for (int c = 0; c < 2; ++c)
+        {
+            const float db = juce::Decibels::gainToDecibels (pk[c], -100.0f);
+            level[c] = db > level[c] ? db : level[c] - 1.2f;          // ~36 dB/s fall at 30 Hz
+            if (db >= hold[c]) { hold[c] = db; holdTicks[c] = 45; }   // ~1.5 s hold
+            else if (--holdTicks[c] < 0) hold[c] -= 1.2f;
+            maxDb = juce::jmax (maxDb, db);
+        }
+        repaint();
+    }
+    void mouseDown (const juce::MouseEvent&) override { maxDb = -100.0f; repaint(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        using L = GlowLookAndFeel;
+        auto r = getLocalBounds().toFloat();
+        g.setColour (L::text.withAlpha (0.85f));
+        g.setFont (juce::FontOptions (11.0f).withKerningFactor (0.25f));
+        g.drawText (name, r.removeFromLeft (38.0f).withHeight (barsH()), juce::Justification::centredLeft);
+        auto readout = r.removeFromRight (52.0f).withHeight (barsH());
+        g.setFont (juce::FontOptions (11.0f));
+        g.setColour (maxDb > 0.0f ? L::red : L::text.withAlpha (0.8f));
+        g.drawText (maxDb <= -99.0f ? juce::String ("-inf") : (maxDb > 0.0f ? "+" : "") + juce::String (maxDb, 1),
+                    readout, juce::Justification::centredRight);
+        auto bars = r.withHeight (barsH()).reduced (0.0f, 0.5f);
+        auto xOf = [&bars] (float db) { return bars.getX() + bars.getWidth() * juce::jlimit (0.0f, 1.0f, (db + 48.0f) / 54.0f); };
+        const float bh = (bars.getHeight() - 2.0f) * 0.5f;
+        for (int c = 0; c < 2; ++c)
+        {
+            auto b = juce::Rectangle<float> (bars.getX(), bars.getY() + (float) c * (bh + 2.0f), bars.getWidth(), bh);
+            g.setColour (juce::Colour (0xff1e1b18));
+            g.fillRoundedRectangle (b, 1.5f);
+            g.setColour (juce::Colour (0xff2e2a25));
+            g.drawRoundedRectangle (b, 1.5f, 0.8f);
+            juce::ColourGradient grad (L::green, xOf (-48.0f), 0.0f, L::red, xOf (0.0f), 0.0f, false);
+            grad.addColour ((double) ((xOf (-12.0f) - xOf (-48.0f)) / (xOf (0.0f) - xOf (-48.0f))), L::green.interpolatedWith (L::yellow, 0.3f));
+            grad.addColour ((double) ((xOf (-3.0f) - xOf (-48.0f)) / (xOf (0.0f) - xOf (-48.0f))), L::yellow);
+            g.setGradientFill (grad);
+            if (level[c] > -48.0f) g.fillRoundedRectangle (b.withRight (xOf (level[c])), 1.5f);
+            if (hold[c] > -48.0f)
+            {
+                g.setColour (hold[c] > 0.0f ? L::red : L::text.withAlpha (0.85f));
+                g.fillRect (xOf (hold[c]) - 1.0f, b.getY(), 2.0f, b.getHeight());
+            }
+        }
+        // ticks, and (OUT) the scale
+        g.setFont (juce::FontOptions (9.0f));
+        for (float db : { -48.0f, -36.0f, -24.0f, -18.0f, -12.0f, -6.0f, -3.0f, 0.0f, 6.0f })
+        {
+            const float x = xOf (db);
+            g.setColour (L::textDim.withAlpha (0.35f));
+            g.fillRect (x - 0.5f, bars.getY(), 1.0f, bars.getHeight());
+            if (showScale)
+            {
+                g.setColour (L::textDim.withAlpha (0.8f));
+                g.drawText (db > 0.0f ? "+" + juce::String ((int) db) : juce::String ((int) db),
+                            juce::Rectangle<float> (x - 14.0f, bars.getBottom() + 2.0f, 28.0f, 10.0f), juce::Justification::centred);
+            }
+        }
+    }
+
+private:
+    float barsH() const { return showScale ? (float) getHeight() - 13.0f : (float) getHeight(); }
+    juce::String name;
+    bool showScale = false;
+    float level[2] { -100.0f, -100.0f }, hold[2] { -100.0f, -100.0f }, maxDb = -100.0f;
+    int holdTicks[2] { 0, 0 };
+};

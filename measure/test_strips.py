@@ -43,17 +43,17 @@ w = render(tone(1000, -30), drive=0, density=0)
 print(f"parallel dry+wet @1k: {level(y, 1000) - level(w, 1000):+.2f} dB vs wet alone (≈ +6 means aligned)")
 
 # 3. EQ: each band vs the target curve
-print("EQ (master, on the dry path, -30 dBFS tones):")
+print("EQ (dry path, -30 dBFS tones):")
 for desc, kw, checks in [
-    ("band2 bell 1 kHz +6 dB Q1", dict(masterF2=1000, masterG2=6, masterQ2=1), [(1000, 6.0), (100, 0.0), (10000, 0.0)]),
-    ("band3 bell 3 kHz -9 dB Q4", dict(masterF3=3000, masterG3=-9, masterQ3=4), [(3000, -9.0), (1000, 0.0)]),
-    ("band1 low shelf 100 Hz +6", dict(masterF1=100, masterG1=6), [(30, 6.0), (100, 3.0), (2000, 0.0)]),
-    ("band1 as bell 100 Hz +6", dict(masterF1=100, masterG1=6, masterLS=0, masterQ1=1), [(100, 6.0), (30, 0.6)]),
-    ("band4 high shelf 8k -6", dict(masterF4=8000, masterG4=-6), [(16000, -6.0), (8000, -3.0), (1000, 0.0)]),
+    ("band2 bell 1 kHz +6 dB Q1", dict(dryF2=1000, dryG2=6, dryQ2=1), [(1000, 6.0), (100, 0.0), (10000, 0.0)]),
+    ("band3 bell 3 kHz -9 dB Q4", dict(dryF3=3000, dryG3=-9, dryQ3=4), [(3000, -9.0), (1000, 0.0)]),
+    ("band1 low shelf 100 Hz +6", dict(dryF1=100, dryG1=6), [(30, 6.0), (100, 3.0), (2000, 0.0)]),
+    ("band1 as bell 100 Hz +6", dict(dryF1=100, dryG1=6, dryLS=0, dryQ1=1), [(100, 6.0), (30, 0.6)]),
+    ("band4 high shelf 8k -6", dict(dryF4=8000, dryG4=-6), [(16000, -6.0), (8000, -3.0), (1000, 0.0)]),
 ]:
     out = []
     for f, want in checks:
-        got = level(render(tone(f, -30), **DRY_ONLY, masterEq=1, **kw), f) + 30
+        got = level(render(tone(f, -30), **DRY_ONLY, dryEq=1, **kw), f) + 30
         out.append(f"{f} Hz {got:+.2f} (want ≈{want:+.1f})")
     print(f"  {desc:28s} " + " | ".join(out))
 
@@ -62,14 +62,14 @@ print("Comp static curve, 1 kHz, input knob 0 dB:")
 for ratio_i, name in ((1, "2:1"), (3, "4:1"), (6, "20:1"), (7, "NUKE")):
     row = []
     for lv in (-30, -18, -12, -6, 0):
-        out = level(render(tone(1000, lv, 1.5), **DRY_ONLY, masterComp=1, masterRatio=ratio_i, masterAtk=1, masterRel=100), 1000)
+        out = level(render(tone(1000, lv, 1.5), **DRY_ONLY, dryComp=1, dryRatio=ratio_i, dryAtk=1, dryRel=100), 1000)
         row.append(f"{lv}->{out:.1f}")
     print(f"  {name:5s} " + "  ".join(row))
 
 # 5. attack / release on a level step (-30 -> -6 -> -30), 4:1, input +0
 x = np.concatenate([tone(1000, -30, 0.5), tone(1000, -6, 0.5), tone(1000, -30, 1.5)])
 for atk, rel in ((1, 100), (10, 1000)):
-    y = render(x, **DRY_ONLY, masterComp=1, masterRatio=3, masterAtk=atk, masterRel=rel)
+    y = render(x, **DRY_ONLY, dryComp=1, dryRatio=3, dryAtk=atk, dryRel=rel)
     hop = SR // 1000
     env = 20 * np.log10(np.sqrt(np.mean((y[: len(y) // hop * hop].reshape(-1, hop)) ** 2, axis=1)) + 1e-9)
     on = env[500:1000]; fin = on[-50:].mean(); start = on[1]
@@ -84,11 +84,11 @@ def harm(y, f0):
     c = [abs(np.sum(seg * w * np.exp(-2j * np.pi * k * f0 * t))) for k in (1, 2, 3)]
     return [20 * np.log10(c[k] / c[0] + 1e-12) for k in (1, 2)]
 for col, name in ((0, "CLEAN"), (1, "DIST 2"), (2, "DIST 3")):
-    h = harm(render(tone(200, -12), **DRY_ONLY, masterComp=1, masterRatio=0, masterColour=col), 200)
+    h = harm(render(tone(200, -12), **DRY_ONLY, dryComp=1, dryRatio=0, dryColour=col), 200)
     print(f"  colour {name:6s}: H2 {h[0]:7.1f} dBc  H3 {h[1]:7.1f} dBc")
 
 # 7. detector HPF: 50 Hz tone should compress much less with HPF on
 for hp in (0, 1):
-    out = level(render(tone(50, -6, 1.5), **DRY_ONLY, masterComp=1, masterRatio=3, masterHpf=hp), 50)
+    out = level(render(tone(50, -6, 1.5), **DRY_ONLY, dryComp=1, dryRatio=3, dryHpf=hp), 50)
     print(f"  50 Hz @ -6 dBFS, detector HPF {'on ' if hp else 'off'}: out {out:.1f} dBFS")
 print("ALL OK" if ok else "FAILURES")

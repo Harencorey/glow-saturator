@@ -23,7 +23,8 @@ GlowProcessor::GlowProcessor()
     for (auto id : { "preEqOn", "preEqLink", "preEqFreq2", "preEqGain2", "preEqQ2", "preEqFreq4", "preEqGain4", "preEqQ4",
                      "preEqBand2On", "preEqBand4On" })
         preEqP[id] = apvts.getRawParameterValue (id);
-    masterParams.bind (apvts, "master");
+    dryParams.bind (apvts, "dry");
+    wetParams.bind (apvts, "wet");
     presets.upgrade = [] (std::map<juce::String, float>& v) { upgradeLegacyValues (v); };
 }
 
@@ -167,11 +168,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqBand2On", 1 }, "Pre EQ Mid On", true));
     l.add (std::make_unique<AudioParameterBool> (ParameterID { "preEqBand4On", 1 }, "Pre EQ High On", true));
 
-    // master EQ + compressor on the mixed signal
+    // each path's EQ + compressor (before the Mix)
     auto levelText = [db] (float v, int len) { return v <= ChannelStrip::kOffDb + 0.05f ? String ("Off") : db (v, len); };
     auto ms = [] (float v, int) { return v < 1.0f ? String (v, 2) + " ms" : v < 1000.0f ? String (v, v < 10.0f ? 1 : 0) + " ms" : String (v / 1000.0f, 2) + " s"; };
     auto qText = [] (float v, int) { return String (v, 2); };
-    for (const String p : { "master" })
+    for (const String p : { "dry", "wet" })
     {
         const bool master = p == "master";
         const String P = p == "dry" ? "Dry " : p == "wet" ? "Wet " : "Master ";
@@ -313,7 +314,8 @@ void GlowProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
         e.bandOn[3] = v ("preEqBand4On") > 0.5f;
         p.preEqLink = v ("preEqLink") > 0.5f;
     }
-    masterParams.read (p.master);
+    dryParams.read (p.dry);
+    wetParams.read (p.wet);
     dsp.setParams (p);
 
     // Some hosts occasionally send blocks larger than announced; process in chunks
@@ -373,11 +375,21 @@ void GlowProcessor::setStateInformation (const void* data, int size)
 
 void GlowProcessor::upgradeLegacyValues (std::map<juce::String, float>& v)
 {
-    const bool hasStrips = std::any_of (v.begin(), v.end(), [] (const auto& kv)
-                           { return kv.first.startsWith ("dry") || kv.first.startsWith ("wet"); });
+    const bool hasFaders = v.count ("dryLevel") || v.count ("wetLevel");
     const bool hasMix = v.find ("mix") != v.end();
-    if (! hasStrips && hasMix) return;   // saved by this version: nothing to do
+    // drop what no longer exists (the faders/mute/solo are folded in below; a master EQ/comp
+    // only existed in test builds)
     auto get = [&v] (const char* id, float def) { auto it = v.find (id); return it != v.end() ? it->second : def; };
+    const float dryDb = get ("dryLevel", ChannelStrip::kOffDb), wetDb = get ("wetLevel", 0.0f);
+    const bool dryMute = get ("dryMute", 0.0f) > 0.5f, wetMute = get ("wetMute", 0.0f) > 0.5f;
+    const bool drySolo = get ("drySolo", 0.0f) > 0.5f, wetSolo = get ("wetSolo", 0.0f) > 0.5f;
+    for (auto it = v.begin(); it != v.end();)
+    {
+        const auto& id = it->first;
+        const bool gone = id == "dryLevel" || id == "wetLevel" || id.endsWith ("Mute") || id.endsWith ("Solo") || id.startsWith ("master");
+        it = gone ? v.erase (it) : std::next (it);
+    }
+    if (! hasFaders && hasMix) return;   // saved by this version: nothing else to do
 
     // Keep Lows used to default to off (only versions without the Mix knob)
     if (! hasMix && v.find ("keepLows") == v.end()) v["keepLows"] = 0.0f;
@@ -385,29 +397,15 @@ void GlowProcessor::upgradeLegacyValues (std::map<juce::String, float>& v)
     // Dry/Wet levels (independent faders, summed; later trims after the Mix) -> the same blend as
     // Mix + an overall gain. With Auto Gain on that gain is left to Auto Gain, as it was before.
     auto lin = [] (float db) { return db <= ChannelStrip::kOffDb ? 0.0f : juce::Decibels::decibelsToGain (db); };
-    float d = lin (get ("dryLevel", ChannelStrip::kOffDb)), w = lin (get ("wetLevel", 0.0f));
+    float d = lin (dryDb), w = lin (wetDb);
     if (hasMix) { const float m = juce::jlimit (0.0f, 1.0f, get ("mix", 100.0f) * 0.01f); d *= 1.0f - m; w *= m; }
-    if (get ("dryMute", 0.0f) > 0.5f || (get ("wetSolo", 0.0f) > 0.5f && get ("drySolo", 0.0f) < 0.5f)) d = 0.0f;
-    if (get ("wetMute", 0.0f) > 0.5f || (get ("drySolo", 0.0f) > 0.5f && get ("wetSolo", 0.0f) < 0.5f)) w = 0.0f;
+    if (dryMute || (wetSolo && ! drySolo)) d = 0.0f;
+    if (wetMute || (drySolo && ! wetSolo)) w = 0.0f;
     float mix = 100.0f, gainDb = 0.0f;
     GlowDSP::legacyMix (d, w, mix, gainDb);
     v["mix"] = mix;
     if (get ("autoGain", 0.0f) < 0.5f && std::abs (gainDb) > 1.0e-4f)
         v["output"] = juce::jlimit (-24.0f, 12.0f, get ("output", 0.0f) + gainDb);
-
-    // the Wet strip's EQ / comp become the master's (exact while the Dry path is off)
-    const bool hasMaster = std::any_of (v.begin(), v.end(), [] (const auto& kv) { return kv.first.startsWith ("master"); });
-    if (! hasMaster)
-    {
-        std::map<juce::String, float> moved;
-        for (const auto& [id, val] : v)
-            if (id.startsWith ("wet") && (id.contains ("Eq") || id.contains ("Comp")))
-                moved["master" + id.substring (3)] = val;
-        for (auto& kv : moved) v[kv.first] = kv.second;
-    }
-    // the strips are gone
-    for (auto it = v.begin(); it != v.end();)
-        it = (it->first.startsWith ("dry") || it->first.startsWith ("wet")) ? v.erase (it) : std::next (it);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new GlowProcessor(); }

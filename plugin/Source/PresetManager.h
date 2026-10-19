@@ -44,25 +44,25 @@ public:
             { "Default", {} },
             { "Subtle Warmth", { { "drive", 15 }, { "even", 62 }, { "odd", 40 } } },
             { "Tube Bus Glue", { { "drive", 30 }, { "density", 55 }, { "autoGain", 1 },
-                                 { "masterCompOn", 1 }, { "masterCompInput", 6 }, { "masterCompRatio", 1 }, { "masterCompAttack", 10 },
-                                 { "masterCompRelease", 300 }, { "masterCompAuto", 1 } } },
+                                 { "wetCompOn", 1 }, { "wetCompInput", 6 }, { "wetCompRatio", 1 }, { "wetCompAttack", 10 },
+                                 { "wetCompRelease", 300 }, { "wetCompAuto", 1 } } },
             { "Vocal Air & Grit", { { "drive", 35 }, { "even", 65 }, { "hpf", 90 }, { "keepLows", 1 },
                                     { "preEqOn", 1 }, { "preEqFreq4", 6000 }, { "preEqGain4", 4 }, { "preEqLink", 1 },
                                     { "autoGain", 1 },
-                                    { "masterCompOn", 1 }, { "masterCompInput", 8 }, { "masterCompRatio", 2 }, { "masterCompAttack", 5 },
-                                    { "masterCompRelease", 120 }, { "masterCompAuto", 1 } } },
-            // parallel blends: the same Dry/Wet balance as the old Dry -6 / Wet 0 and Dry 0 / Wet -6
+                                    { "wetCompOn", 1 }, { "wetCompInput", 8 }, { "wetCompRatio", 2 }, { "wetCompAttack", 5 },
+                                    { "wetCompRelease", 120 }, { "wetCompAuto", 1 } } },
+            // parallel blends: the same Dry/Wet balance as the old Dry -6 / Wet 0 and Dry 0 / Wet -6 faders
             // (Auto Gain takes care of the overall level, as before)
             { "Bass Weight", { { "drive", 45 }, { "even", 80 }, { "odd", 30 }, { "density", 60 },
                                { "mix", 66.6f }, { "autoGain", 1 } } },
             { "Parallel Drum Smash", { { "drive", 70 }, { "odd", 65 }, { "hpf", 40 }, { "keepLows", 0 }, { "mix", 33.4f },
-                                       { "autoGain", 1 }, { "masterCompOn", 1 }, { "masterCompInput", 18 }, { "masterCompRatio", 4 },
-                                       { "masterCompAttack", 3 }, { "masterCompRelease", 150 }, { "masterCompColour", 1 },
-                                       { "masterCompAuto", 1 } } },
+                                       { "autoGain", 1 }, { "wetCompOn", 1 }, { "wetCompInput", 18 }, { "wetCompRatio", 4 },
+                                       { "wetCompAttack", 3 }, { "wetCompRelease", 150 }, { "wetCompColour", 1 },
+                                       { "wetCompAuto", 1 } } },
             { "Lo-Fi Crush", { { "drive", 90 }, { "odd", 85 }, { "density", 80 }, { "hpf", 150 }, { "keepLows", 0 }, { "autoGain", 1 },
-                               { "masterEqOn", 1 }, { "masterEqFreq4", 6000 }, { "masterEqGain4", -8 },
-                               { "masterCompOn", 1 }, { "masterCompInput", 12 }, { "masterCompRatio", 7 }, { "masterCompColour", 2 },
-                               { "masterCompMix", 60 }, { "masterCompAuto", 1 } } },
+                               { "wetEqOn", 1 }, { "wetEqFreq4", 6000 }, { "wetEqGain4", -8 },
+                               { "wetCompOn", 1 }, { "wetCompInput", 12 }, { "wetCompRatio", 7 }, { "wetCompColour", 2 },
+                               { "wetCompMix", 60 }, { "wetCompAuto", 1 } } },
         };
         return f;
     }

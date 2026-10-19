@@ -47,10 +47,10 @@ int main (int argc, char** argv)
         else if (key == "keep")    p.keepLows = v > 0.5f;
         else if (key == "dryLevel") legacyDryDb = v;   // old keys: the Dry/Wet balance -> Mix (+ Output)
         else if (key == "wetLevel") legacyWetDb = v;
-        else if (key.startsWith ("wet") || key.startsWith ("master"))   // master EQ/comp (old Wet-strip keys too: the same while Dry is off)
+        else if (key.startsWith ("dry") || key.startsWith ("wet"))   // each path's EQ / comp
         {
-            auto& st = p.master;
-            const auto k = key.startsWith ("wet") ? key.substring (3) : key.substring (6);
+            auto& st = key.startsWith ("dry") ? p.dry : p.wet;
+            const auto k = key.substring (3);
             const int b = k.getLastCharacter() - '1';
             if      (k == "Level")  st.levelDb = v;
             else if (k == "Eq")     st.eq.on = v > 0.5f;
@@ -92,7 +92,7 @@ int main (int argc, char** argv)
         else if (key == "inDb")    p.inputDb = v;
         else if (key == "block")   block = juce::jmax (1, (int) v);
         else if (key == "solo")    solo = (int) v;   // 1 = wet path only, 2 = dry path only (both still run)
-        else if (key == "bsPath")  bsPath = (int) v; // EQ band solo: path 3 pre-sat EQ, 4 master ...
+        else if (key == "bsPath")  bsPath = (int) v; // EQ band solo: path 1 dry, 2 wet, 3 pre ...
         else if (key == "bsBand")  bsBand = (int) v; // ... band 0..3 (-1 = off)
         else return false;
         return true;

@@ -89,9 +89,11 @@ private:
         }
         // wide: lamp | little curve | name | open-arrow
         L::drawLamp (g, { r.getX() + 16.0f, r.getCentreY() }, 4.0f, on);
-        auto icon = juce::Rectangle<float> (r.getX() + 34.0f, r.getCentreY() - 7.0f, 30.0f, 14.0f);
+        const bool roomy = r.getWidth() >= 140.0f;   // narrow buttons skip the little curve
+        auto icon = juce::Rectangle<float> (r.getX() + 34.0f, r.getCentreY() - 7.0f, roomy ? 30.0f : 0.0f, 14.0f);
         juce::Path p;
-        if (kind == Kind::eq)
+        if (! roomy) {}
+        else if (kind == Kind::eq)
             for (int i = 0; i <= 20; ++i)
             {
                 const float t = (float) i / 20.0f;
@@ -108,7 +110,7 @@ private:
         g.setColour (txt);
         g.strokePath (p, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         g.setFont (juce::FontOptions (12.0f).withKerningFactor (0.12f));
-        g.drawText (getName(), juce::Rectangle<float> (icon.getRight() + 12.0f, r.getY(), 70.0f, r.getHeight()), juce::Justification::centredLeft);
+        g.drawText (getName(), juce::Rectangle<float> (icon.getRight() + (roomy ? 12.0f : 0.0f), r.getY(), 70.0f, r.getHeight()), juce::Justification::centredLeft);
         // open arrow: a small box with an arrow out of its corner
         auto ob = juce::Rectangle<float> (r.getRight() - 28.0f, r.getCentreY() - 7.0f, 14.0f, 14.0f);
         g.setColour (L::text.withAlpha (over ? 0.95f : 0.7f));
@@ -769,7 +771,7 @@ public:
 protected:
     void layoutContent (juce::Rectangle<int> r) override
     {
-        curve.setBounds (r.removeFromTop (juce::jmax (90, r.getHeight() - 150)));   // knobs keep ~150 px, the curve gets the rest
+        curve.setBounds (r.removeFromTop (juce::jmax (90, r.getHeight() - 120)));   // smaller knobs (~120 px), a big curve
         r.removeFromTop (6);
         const int w = r.getWidth() / 4;
         for (int b = 0; b < 4; ++b)
