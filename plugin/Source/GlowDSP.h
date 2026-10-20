@@ -308,7 +308,9 @@ public:
         if (bandSoloPath == 1) params.wet.audible = false;
         if (bandSoloPath == 2 || bandSoloPath == 3) params.dry.audible = false;
         // expanded pre-saturation EQ, and (Link) its mirror image after the tubes
-        preEqF.plan (params.preEq, true, n, dryHeard && ! params.preEqLink);
+        // phase-locked whenever another path meets this one: the dry path, or Keep Lows' clean
+        // lows (added back to the wet path, so they need the EQ's phase too)
+        preEqF.plan (params.preEq, true, n, (dryHeard || needKeep) && ! params.preEqLink);
         {
             EqSettings mirror = params.preEq;
             mirror.on = params.preEq.on && params.preEqLink;
@@ -337,6 +339,7 @@ public:
             if (needKeep && keepStale)   // Keep lows just came in: clean filter state (it fades in)
             {
                 for (auto& h : hpf) { h.keepMain.reset(); h.keepAp.reset(); }
+                preEqF.resetKeepAllpass();
                 for (auto& c : ch) c.resetKeep();
                 keepStale = false;
             }
@@ -368,6 +371,9 @@ public:
                         h.keepMain.process (h.stage, lowsM);
                     }
                 lows.subtract (lowsM);
+                // the pre-sat EQ's phase (its all-pass, flat level): the clean lows stay in
+                // phase with the EQ'd wet path where the two overlap
+                preEqF.allpassOnKeepPath (lows);
             }
             else keepStale = true;
             for (int c = 0; c < nch; ++c)

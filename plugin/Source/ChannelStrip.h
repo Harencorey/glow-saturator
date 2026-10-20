@@ -35,7 +35,7 @@ public:
         reset();
     }
 
-    void reset() { for (auto& m : main) m.reset(); for (auto& a : comp) a.reset(); }
+    void reset() { for (auto& m : main) m.reset(); for (auto& a : comp) a.reset(); for (auto& a : comp2) a.reset(); }
     void snap() { for (auto& st : stages) st.snapNext(); }
 
     // Once per block, before either path is processed. 'allowed' = this path is audible.
@@ -69,6 +69,14 @@ public:
         for (int b = 0; b < 4; ++b)
             if (stages[(size_t) b].busy()) comp[(size_t) b].process (stages[(size_t) b], block);
     }
+    // a third path (Keep Lows' clean lows, added back to this EQ's path): the same all-passes,
+    // with their own state
+    void allpassOnKeepPath (juce::dsp::AudioBlock<float>& block)
+    {
+        for (int b = 0; b < 4; ++b)
+            if (stages[(size_t) b].busy()) comp2[(size_t) b].process (stages[(size_t) b], block);
+    }
+    void resetKeepAllpass() { for (auto& a : comp2) a.reset(); }
     void resetMain() { for (auto& m : main) m.reset(); }
     void resetAllpass() { for (auto& a : comp) a.reset(); }
 
@@ -94,7 +102,7 @@ private:
     double sr = 48000.0;
     std::array<Coherent::Stage, 4> stages;
     std::array<Coherent::Main, 4> main;
-    std::array<Coherent::Allpass, 4> comp;
+    std::array<Coherent::Allpass, 4> comp, comp2;
 };
 
 //==============================================================================

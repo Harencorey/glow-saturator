@@ -29,6 +29,8 @@ SETTINGS = {
     "TAPE + HPF 120 Keep lows + wet EQ": dict(type=2, hpf=120, keep=1, wetEq=1, wetG2=6, wetQ2=2),
     "DIODE + HPF 200 Keep lows + both comps": dict(type=3, hpf=200, keep=1, wetComp=1, wetIn=10, dryComp=1, dryIn=10),
     "DIODE + HPF 80 36 dB Keep lows + mirror EQ": dict(type=3, hpf=80, slope=3, keep=1, peq=1, peqLink=1, peqMF=1500, peqMG=8),
+    "HPF 120 Keep lows + pre-EQ mid -8 @150 near the corner": dict(hpf=120, keep=1, peq=1, peqMF=150, peqMG=-8, peqMQ=2),
+    "HPF 100 Keep lows + pre-EQ mid +8 @200 + high shelf": dict(hpf=100, keep=1, peq=1, peqMF=200, peqMG=8, peqHG=5),
     "HPF 150 36 dB": dict(hpf=150, slope=3, keep=0),
     "HPF 150 36 dB + Keep lows": dict(hpf=150, slope=3, keep=1),
     "HPF 150 6 dB + Keep lows": dict(hpf=150, slope=0, keep=1),
