@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Configure (downloads JUCE 8.0.15)
         working-directory: plugin
-        run: cmake -B build-mac -DCMAKE_BUILD_TYPE=Release -DGLOW_VERSION=0.1.99
+        run: cmake -B build-mac -DCMAKE_BUILD_TYPE=Release -DGLOW_VERSION=0.0.99
       - name: Build (errors/warnings as annotations)
         working-directory: plugin
         shell: bash
@@ -36,7 +36,7 @@ jobs:
       - name: Ad-hoc sign + install
         run: |
           codesign --force --deep --sign - "$ART/AU/Glow.component" "$ART/VST3/Glow.vst3" "$ART/Standalone/Glow.app"
-          bash packaging/make_pkg.sh "$ART" 0.1.99 out
+          bash packaging/make_pkg.sh "$ART" 0.0.99 out
           rm -rf ~/Library/Audio/Plug-Ins/Components/Glow.component ~/Library/Audio/Plug-Ins/VST3/Glow.vst3
           sudo installer -pkg out/Glow-Installer.pkg -target /
       - name: auval
@@ -67,7 +67,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          printf '%s\n' "**Glow GUI test build** (${GITHUB_SHA::7}) from branch gui/workstation-redesign: compact + expandable layout, Mix knob, Input gain, Master EQ/Comp. Not merged yet." "" "The plug-in window shows **v0.1.99**. Installing replaces your current Glow; reinstall v0.1.26 to go back." "Passed Apple auval and pluginval (strictness 10)." > notes.md
+          printf '%s\n' "**Glow GUI test build** (${GITHUB_SHA::7}) from branch gui/workstation-redesign: compact + expandable layout, Mix knob, Input gain, Master EQ/Comp. Not merged yet." "" "The plug-in window shows **v0.0.99**. Installing replaces your current Glow; reinstall v0.1.26 to go back." "Passed Apple auval and pluginval (strictness 10)." > notes.md
           gh release delete gui-test --yes --cleanup-tag 2>/dev/null || true
           git tag -f gui-test "$GITHUB_SHA"
           git push -f origin refs/tags/gui-test
