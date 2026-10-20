@@ -122,6 +122,7 @@ int main()
             {
                 const auto id = e->getStringAttribute ("id");
                 if (id == "mix" || id == "keepLows" || id == "inputGain") drop.add (e);
+                if (id == "autoGain" || id.endsWith ("CompAuto")) e->setAttribute ("value", 0.0);   // off in the old versions
             }
             for (auto* e : drop) old->removeChildElement (e, true);
             edit (*old);
@@ -206,6 +207,20 @@ int main()
             check (sp->getText (sp->convertTo0to1 (0.0f), 20) == "6 dB/oct" && sp->getText (sp->convertTo0to1 (3.0f), 20) == "36 dB/oct",
                    "HPF slope offers 6 / 12 / 24 / 36 dB/oct");
             check (std::lround (fresh.apvts.getRawParameterValue ("driveType")->load()) == 0, "new instance: drive type TUBE");
+            check (fresh.apvts.getRawParameterValue ("autoGain")->load() > 0.5f && fresh.apvts.getRawParameterValue ("dryCompAuto")->load() > 0.5f
+                   && fresh.apvts.getRawParameterValue ("wetCompAuto")->load() > 0.5f, "new instance: Auto Gain + both comps' Auto Makeup on");
+            {
+                auto tNoAuto = oldSession ([&] (juce::XmlElement& x)
+                {
+                    juce::Array<juce::XmlElement*> drop;
+                    for (auto* e : x.getChildWithTagNameIterator ("PARAM"))
+                        if (e->getStringAttribute ("id") == "autoGain" || e->getStringAttribute ("id").endsWith ("CompAuto")) drop.add (e);
+                    for (auto* e : drop) x.removeChildElement (e, true);
+                });
+                check (tNoAuto->apvts.getRawParameterValue ("autoGain")->load() < 0.5f
+                       && tNoAuto->apvts.getRawParameterValue ("wetCompAuto")->load() < 0.5f,
+                       "old session from before the auto switches keeps them off");
+            }
             auto tOld = oldSession ([&] (juce::XmlElement& x)
             {
                 juce::Array<juce::XmlElement*> drop;

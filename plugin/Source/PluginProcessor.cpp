@@ -138,7 +138,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
     // dry/wet: linear crossfade (0 % = clean, 100 % = saturated)
     addFloat (l, "mix", "Mix", { 0.0f, 100.0f, 0.1f }, 100.0f, pct);
     // keeps the output as loud as the input (slow, K-weighted), so moves don't fool your ears
-    l.add (std::make_unique<AudioParameterBool> (ParameterID { "autoGain", 1 }, "Auto Gain", false));
+    l.add (std::make_unique<AudioParameterBool> (ParameterID { "autoGain", 1 }, "Auto Gain", true));   // on for new instances
 
     // envelope follower: moves Drive with the input's dynamics
     addFloat (l, "envAmount", "Envelope Amount", { -100.0f, 100.0f, 0.1f }, 0.0f,
@@ -208,7 +208,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout GlowProcessor::createLayout(
         // parallel compression: blend of uncompressed signal (same path, same phase)
         // signal order inside the path: EQ -> Comp (default) or Comp -> EQ
         l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompFirst", 1 }, P + "Comp Before EQ", false));
-        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompAuto", 1 }, P + "Comp Auto Makeup", false));
+        l.add (std::make_unique<AudioParameterBool> (ParameterID { p + "CompAuto", 1 }, P + "Comp Auto Makeup", true));   // on for new instances
         addFloat (l, id ("CompMix").c_str(), (P + "Comp Mix").toRawUTF8(), { 0.0f, 100.0f, 0.1f }, 100.0f, pct);
     }
     return l;
@@ -371,6 +371,9 @@ void GlowProcessor::upgradeLegacyValues (std::map<juce::String, float>& v)
         const bool gone = id == "dryLevel" || id == "wetLevel" || id.endsWith ("Mute") || id.endsWith ("Solo") || id.startsWith ("master");
         it = gone ? v.erase (it) : std::next (it);
     }
+    // the auto switches are on for new instances; a session saved before one existed had it off
+    for (auto id : { "autoGain", "dryCompAuto", "wetCompAuto" })
+        if (v.find (id) == v.end()) v[id] = 0.0f;
     // the old 12/24 slope switch -> the 4-way slope (12 -> index 1, 24 -> index 2)
     if (auto it = v.find ("hpfSlope"); it != v.end())
     {
