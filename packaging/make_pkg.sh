@@ -14,6 +14,10 @@ make_component () {   # name  source-bundle  install-location  identifier
     # Never "relocate": always install to the stated folder, even if another copy exists elsewhere.
     pkgbuild --analyze --root "$WORK/$name-root" "$WORK/$name.plist"
     plutil -replace 0.BundleIsRelocatable -bool NO "$WORK/$name.plist"
+    # Always replace whatever Glow is there, even a higher-numbered build (a test build, say):
+    # by default macOS Installer silently skips a bundle whose installed copy has a newer version.
+    plutil -replace 0.BundleIsVersionChecked -bool NO "$WORK/$name.plist"
+    plutil -replace 0.BundleOverwriteAction -string upgrade "$WORK/$name.plist"
     pkgbuild --root "$WORK/$name-root" --component-plist "$WORK/$name.plist" \
              --install-location "$loc" --identifier "$id" --version "$VERSION" \
              ${5:+--scripts "$5"} "$WORK/$name.pkg"

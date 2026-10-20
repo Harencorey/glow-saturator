@@ -1,0 +1,6 @@
+#!/bin/bash
+# Runs as root before Glow is installed: remove the installed Glow first, whatever its
+# version, so the new one always lands (the Installer would otherwise skip a "downgrade").
+rm -rf "/Library/Audio/Plug-Ins/Components/Glow.component"
+rm -rf "/Library/Audio/Plug-Ins/VST3/Glow.vst3"
+exit 0
