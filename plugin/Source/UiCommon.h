@@ -74,8 +74,8 @@ struct Knob
         slider.setBounds (r);
     }
 
-    // no value box: the value pops up while you turn it (and shows in the tooltip host-side)
-    void popupValue() { slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0); slider.setPopupDisplayEnabled (true, true, nullptr); }
+    // no value box and no value bubble: just the knob, like hardware (the host still shows the value)
+    void popupValue() { slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0); slider.setPopupDisplayEnabled (false, false, nullptr); }
     // 0-10 scale printed around the knob
     void numbers() { slider.getProperties().set ("numbers", true); }
 };
