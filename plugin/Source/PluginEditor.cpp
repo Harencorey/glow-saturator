@@ -448,12 +448,14 @@ GlowEditor::GlowEditor (GlowProcessor& p)
     }
     abA.setTooltip ("A/B: two complete settings to compare. Click B to switch (it starts as a copy of A).");
     abB.setTooltip (abA.getTooltip());
-    abA.onClick = [this] { proc.switchAB (0); };
-    abB.onClick = [this] { proc.switchAB (1); };
+    abA.onClick = [this] { proc.switchAB (0); proc.nudgeAutoGain(); };
+    abB.onClick = [this] { proc.switchAB (1); proc.nudgeAutoGain(); };
+    presetBar.onLoaded = [this] { proc.nudgeAutoGain(); };
     undoButton.setTooltip ("Undo");
     redoButton.setTooltip ("Redo");
-    undoButton.onClick = [this] { proc.undoManager.undo(); };
-    redoButton.onClick = [this] { proc.undoManager.redo(); };
+    undoButton.onClick = [this] { proc.undoManager.undo(); proc.nudgeAutoGain(); };
+    redoButton.onClick = [this] { proc.undoManager.redo(); proc.nudgeAutoGain(); };
+    proc.addListener (this);
     body.addAndMakeVisible (undoButton);
     body.addAndMakeVisible (redoButton);
 
@@ -482,6 +484,7 @@ GlowEditor::GlowEditor (GlowProcessor& p)
 
 GlowEditor::~GlowEditor()
 {
+    proc.removeListener (this);
     PopupMenu::dismissAllActiveMenus();   // the size menu, if it's open
     stopTimer();
     panel.reset();
@@ -558,6 +561,37 @@ void GlowEditor::closePanel()
         panel.reset();
         applyLayout();
     }
+}
+
+bool GlowEditor::affectsLevel (int index) const
+{
+    // the Output trim sits after Auto Gain, and AUTO is the switch itself
+    const auto& ps = proc.getParameters();
+    if (! juce::isPositiveAndBelow (index, ps.size())) return false;
+    if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (ps[index]))
+        return rp->getParameterID() != "output" && rp->getParameterID() != "autoGain";
+    return false;
+}
+
+void GlowEditor::audioProcessorParameterChangeGestureBegin (juce::AudioProcessor*, int index)
+{
+    if (! affectsLevel (index)) return;
+    ++handGestures;
+    proc.nudgeAutoGain();
+}
+
+void GlowEditor::audioProcessorParameterChangeGestureEnd (juce::AudioProcessor*, int index)
+{
+    if (! affectsLevel (index)) return;
+    if (handGestures.load() > 0) --handGestures;
+    proc.nudgeAutoGain();   // the quick window runs on for a second after you let go
+}
+
+void GlowEditor::audioProcessorParameterChanged (juce::AudioProcessor*, int index, float)
+{
+    // may arrive on any thread (host automation comes from the audio thread): only counts
+    // while a hand gesture is in progress; nudgeAutoGain just sets an atomic flag
+    if (handGestures.load() > 0 && affectsLevel (index)) proc.nudgeAutoGain();
 }
 
 void GlowEditor::showType (int t)

@@ -12,10 +12,20 @@
 //
 // Everything is laid out in fixed "design" units and the whole body is scaled by the interface size
 // (right-click the background), so it stays crisp at any size.
-class GlowEditor : public juce::AudioProcessorEditor, private juce::Timer
+class GlowEditor : public juce::AudioProcessorEditor, private juce::Timer, private juce::AudioProcessorListener
 {
 public:
     explicit GlowEditor (GlowProcessor&);
+private:
+    // Auto Gain re-matches quickly after any change made by hand in this window: every control
+    // here wraps its changes in a gesture (host automation never does), so a gesture = a hand move.
+    void audioProcessorParameterChangeGestureBegin (juce::AudioProcessor*, int index) override;
+    void audioProcessorParameterChangeGestureEnd (juce::AudioProcessor*, int index) override;
+    void audioProcessorParameterChanged (juce::AudioProcessor*, int index, float) override;
+    void audioProcessorChanged (juce::AudioProcessor*, const ChangeDetails&) override {}
+    bool affectsLevel (int index) const;
+    std::atomic<int> handGestures { 0 };
+public:
     ~GlowEditor() override;
 
     void paint (juce::Graphics&) override;

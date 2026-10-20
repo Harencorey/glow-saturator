@@ -8,6 +8,8 @@
 class PresetBar : public juce::Component
 {
 public:
+    std::function<void()> onLoaded;   // a preset was loaded from this bar
+
     explicit PresetBar (PresetManager& pm) : presets (pm)
     {
         for (auto* b : { &prev, &next, &save }) addAndMakeVisible (b);
@@ -16,8 +18,8 @@ public:
         next.setTooltip ("Next preset");
         save.setTooltip ("Save the current settings as a preset");
         nameButton.setTooltip ("Presets");
-        prev.onClick = [this] { presets.step (-1); refresh(); };
-        next.onClick = [this] { presets.step (+1); refresh(); };
+        prev.onClick = [this] { presets.step (-1); refresh(); if (onLoaded) onLoaded(); };
+        next.onClick = [this] { presets.step (+1); refresh(); if (onLoaded) onLoaded(); };
         save.onClick = [this] { askSaveAs(); };
         nameButton.onClick = [this] { showMenu(); };
         refresh();
@@ -86,8 +88,8 @@ private:
             [this, factory, user, sp = juce::Component::SafePointer<PresetBar> (this)] (int id)
             {
                 if (sp == nullptr || id == 0) return;
-                if (id >= 1 && id <= factory.size())             presets.load (factory[id - 1]);
-                else if (id >= 1000 && id < 1000 + user.size())  presets.load (user[id - 1000]);
+                if (id >= 1 && id <= factory.size())             { presets.load (factory[id - 1]); if (onLoaded) onLoaded(); }
+                else if (id >= 1000 && id < 1000 + user.size())  { presets.load (user[id - 1000]); if (onLoaded) onLoaded(); }
                 else if (id == 2000)                              askSaveAs();
                 else if (id == 2001)                              askDelete();
                 else if (id == 2002)
